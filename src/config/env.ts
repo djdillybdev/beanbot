@@ -10,6 +10,7 @@ const envSchema = z.object({
   DISCORD_GUILD_ID: requiredString('DISCORD_GUILD_ID'),
   DATABASE_URL: requiredString('DATABASE_URL'),
   BOT_TIMEZONE: requiredString('BOT_TIMEZONE').default('UTC'),
+  TODAY_CHANNEL_ID: requiredString('TODAY_CHANNEL_ID'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().optional(),

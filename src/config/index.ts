@@ -11,6 +11,7 @@ export interface AppConfig {
   port: number;
   publicBaseUrl: string;
   timezone: string;
+  todayChannelId: string;
 }
 
 export function createConfig(): AppConfig {
@@ -26,5 +27,6 @@ export function createConfig(): AppConfig {
     port: env.PORT,
     publicBaseUrl: env.PUBLIC_BASE_URL ?? `http://${env.HOST}:${env.PORT}`,
     timezone: env.BOT_TIMEZONE,
+    todayChannelId: env.TODAY_CHANNEL_ID,
   };
 }

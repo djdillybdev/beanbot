@@ -12,6 +12,7 @@ This repo now contains the foundation plus the Phase 1 read-only surface:
 - Todoist OAuth + read integration
 - Google Calendar OAuth + read integration
 - Drizzle + SQLite migrations for local config and OAuth token storage
+- Automated daily `#today` digest posting at 8:00 AM local time
 - `/ping`, `/help`, `/today`, `/week`, and `/month` slash commands
 
 ## Prerequisites
@@ -29,6 +30,7 @@ Copy `.env.example` to `.env` and fill in:
 - `DISCORD_GUILD_ID`
 - `DATABASE_URL`
 - `BOT_TIMEZONE`
+- `TODAY_CHANNEL_ID`
 - `OAUTH_STATE_SECRET` for OAuth flows
 - `HOST`
 - `PORT`
@@ -59,6 +61,13 @@ bun run dev
 - `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
 - `/week` shows overdue work plus the next 7 days of tasks and events
 - `/month` shows overdue work plus the next 31 days of tasks and events
+
+## Daily digest
+
+The bot now posts the `/today` digest into the configured `TODAY_CHANNEL_ID` channel:
+
+- once on bot startup for testing
+- every day at 8:00 AM in `BOT_TIMEZONE`
 
 ## OAuth connect endpoints
 

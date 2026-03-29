@@ -2,6 +2,7 @@ import { TodayReviewService } from './app/today/get-today-review';
 import { createConfig } from './config';
 import { createDb } from './db/client';
 import { createDiscordClient } from './bot/client';
+import { startTodayDigestScheduler } from './jobs/today-digest-scheduler';
 import { registerGuildCommands } from './bot/register-commands';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
@@ -52,9 +53,16 @@ async function main() {
     todayReviewService,
   });
   await discord.start();
+  const digestScheduler = startTodayDigestScheduler(
+    discord.client,
+    config,
+    todayReviewService,
+    console,
+  );
 
   const shutdown = async (signal: string) => {
     console.info(`Received ${signal}, shutting down`);
+    digestScheduler.stop();
     httpServer.close();
     await discord.client.destroy();
     process.exit(0);

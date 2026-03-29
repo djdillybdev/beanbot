@@ -5,6 +5,7 @@ import {
 } from 'discord.js';
 
 import { TodayReviewService } from '../app/today/get-today-review';
+import { buildTodayEmbeds } from './renderers/today';
 import type { AppConfig } from '../config';
 import type { DailyEventSummary, DailyTaskSummary, PeriodReviewResult } from '../domain/daily-review';
 
@@ -53,19 +54,9 @@ export async function handleChatInputCommand(
 
   if (interaction.commandName === 'today') {
     const review = await dependencies.todayReviewService.getReview();
-    const embed = new EmbedBuilder()
-      .setTitle('Today')
-      .setDescription(`Timezone: ${dependencies.config.timezone}`)
-      .addFields(
-        buildTaskField('Overdue', review.overdueTasks),
-        buildTaskField('Due Today', review.dueTodayTasks),
-        buildEventField('Events Today', review.todayEvents),
-        buildStatusField('Provider Status', review.todoistStatus.message, review.googleCalendarStatus.message),
-      )
-      .setTimestamp(new Date());
 
     await interaction.reply({
-      embeds: [embed],
+      embeds: buildTodayEmbeds(dependencies.config, review),
       flags: MessageFlags.Ephemeral,
     });
     return;
