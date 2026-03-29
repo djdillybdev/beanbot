@@ -4,7 +4,7 @@ import { createSignedOAuthState, verifySignedOAuthState } from '../../utils/oaut
 
 const TODOIST_AUTHORIZE_URL = 'https://api.todoist.com/oauth/authorize';
 const TODOIST_TOKEN_URL = 'https://api.todoist.com/oauth/access_token';
-const TODOIST_SCOPE = 'data:read';
+const TODOIST_SCOPE = 'data:read_write';
 
 export class TodoistOAuthService {
   constructor(private readonly config: AppConfig) {}

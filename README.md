@@ -13,7 +13,7 @@ This repo now contains the foundation plus the Phase 1 read-only surface:
 - Google Calendar OAuth + read integration
 - Drizzle + SQLite migrations for local config and OAuth token storage
 - Automated daily `#today` digest posting at 8:00 AM local time
-- `/ping`, `/help`, `/today`, `/week`, and `/month` slash commands
+- `/ping`, `/help`, `/today`, `/week`, `/month`, `/task add`, and `/task done` slash commands
 
 ## Prerequisites
 
@@ -61,6 +61,8 @@ bun run dev
 - `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
 - `/week` shows overdue work plus the next 7 days of tasks and events
 - `/month` shows overdue work plus the next 31 days of tasks and events
+- `/task add` creates a Todoist task via quick add
+- `/task done` completes a recently seen task by exact title
 
 ## Daily digest
 

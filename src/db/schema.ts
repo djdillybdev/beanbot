@@ -55,3 +55,19 @@ export const oauthTokens = sqliteTable('oauth_tokens', {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const todoistTaskMap = sqliteTable('todoist_task_map', {
+  todoistTaskId: text('todoist_task_id').primaryKey(),
+  normalizedTitle: text('normalized_title').notNull(),
+  lastSeenContent: text('last_seen_content').notNull(),
+  lastSeenDueLabel: text('last_seen_due_label'),
+  lastSeenDueDate: text('last_seen_due_date'),
+  lastSeenUrl: text('last_seen_url').notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAtUtc: text('created_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAtUtc: text('updated_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});

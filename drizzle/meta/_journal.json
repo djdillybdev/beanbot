@@ -15,6 +15,13 @@
       "when": 1774742400000,
       "tag": "0001_oauth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774828800000,
+      "tag": "0002_todoist_task_map",
+      "breakpoints": true
     }
   ]
 }

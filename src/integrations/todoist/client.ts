@@ -1,15 +1,17 @@
 import type { AppConfig } from '../../config';
 import type { DailyTaskSummary } from '../../domain/daily-review';
+import type { TodoistTaskRecord } from '../../domain/task';
 import type { StoredOAuthToken } from '../../domain/oauth';
 import { getLocalDateParts, formatLocalTime } from '../../utils/time';
 import { OAuthTokenRepository } from '../../db/oauth-token-repository';
+import { normalizeTaskTitle } from '../../utils/text';
 
 const TODOIST_API_BASE_URL = 'https://api.todoist.com/api/v1';
-
 interface TodoistTaskResponse {
   id: string;
   content: string;
   priority: number;
+  url?: string;
   due?: {
     date?: string;
     datetime?: string;
@@ -41,7 +43,7 @@ export class TodoistClient {
   }
 
   async getTasksForUpcomingDays(
-    days: number,
+  days: number,
   ): Promise<{ overdueTasks: DailyTaskSummary[]; dueTodayTasks: DailyTaskSummary[] }> {
     const token = await this.requireToken();
     const tasks = await this.fetchFilteredTasks(token, buildTodoistDateFilter(days));
@@ -79,6 +81,55 @@ export class TodoistClient {
     dueTodayTasks.sort(compareTaskSummaries);
 
     return { overdueTasks, dueTodayTasks };
+  }
+
+  async getTaskRecordsForUpcomingDays(days: number): Promise<TodoistTaskRecord[]> {
+    const token = await this.requireToken();
+    const tasks = await this.fetchFilteredTasks(token, buildTodoistDateFilter(days));
+    const today = getLocalDateParts(new Date(), this.config.timezone).date;
+    const endExclusive = addDays(today, days);
+
+    return tasks
+      .map((task) => mapTaskRecord(task, today, endExclusive, this.config.timezone))
+      .filter((task): task is TodoistTaskRecord => task !== null);
+  }
+
+  async quickAddTask(content: string): Promise<TodoistTaskRecord> {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist create task failed: ${response.status} ${text}`);
+    }
+
+    const task = (await response.json()) as TodoistTaskResponse;
+
+    return mapQuickAddedTaskRecord(task, this.config.timezone);
+  }
+
+  async closeTask(taskId: string) {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}/close`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist close task failed: ${response.status} ${text}`);
+    }
   }
 
   private async requireToken(): Promise<StoredOAuthToken> {
@@ -202,6 +253,56 @@ function buildTodoistDateFilter(days: number) {
   }
 
   return `overdue | next ${days} days`;
+}
+
+function mapTaskRecord(
+  task: TodoistTaskResponse,
+  todayDate: string,
+  endExclusiveDate: string,
+  timezone: string,
+): TodoistTaskRecord | null {
+  const classification = classifyTodoistTask(task, todayDate, endExclusiveDate, timezone);
+
+  if (!classification) {
+    return null;
+  }
+
+  return {
+    id: task.id,
+    title: task.content,
+    normalizedTitle: normalizeTaskTitle(task.content),
+    priority: task.priority,
+    dueLabel: classification.label,
+    dueDate: classification.dateKey,
+    url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
+    isActive: true,
+  };
+}
+
+function mapQuickAddedTaskRecord(
+  task: TodoistTaskResponse,
+  timezone: string,
+): TodoistTaskRecord {
+  const dueLabel = task.due?.datetime
+    ? `Due at ${formatLocalTime(new Date(task.due.datetime), timezone)}`
+    : task.due?.date
+      ? `Due ${task.due.date}`
+      : undefined;
+
+  const dueDate = task.due?.datetime
+    ? getLocalDateParts(new Date(task.due.datetime), timezone).date
+    : task.due?.date;
+
+  return {
+    id: task.id,
+    title: task.content,
+    normalizedTitle: normalizeTaskTitle(task.content),
+    priority: task.priority,
+    dueLabel,
+    dueDate,
+    url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
+    isActive: true,
+  };
 }
 
 function addDays(dateString: string, days: number): string {

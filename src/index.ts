@@ -1,11 +1,14 @@
 import { TodayReviewService } from './app/today/get-today-review';
+import { TaskService } from './app/tasks/task-service';
 import { createConfig } from './config';
 import { createDb } from './db/client';
 import { createDiscordClient } from './bot/client';
 import { startTodayDigestScheduler } from './jobs/today-digest-scheduler';
 import { registerGuildCommands } from './bot/register-commands';
+import { ActionLogRepository } from './db/action-log-repository';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
+import { TodoistTaskMapRepository } from './db/todoist-task-map-repository';
 import { GoogleCalendarClient } from './integrations/google-calendar/client';
 import { GoogleCalendarOAuthService } from './integrations/google-calendar/oauth';
 import { TodoistClient } from './integrations/todoist/client';
@@ -20,7 +23,9 @@ async function main() {
   console.info(`Database migrations applied at ${config.databasePath}`);
 
   const db = createDb(config);
+  const actionLogRepository = new ActionLogRepository(db);
   const tokenRepository = new OAuthTokenRepository(db);
+  const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const todoistOAuthService = new TodoistOAuthService(config);
   const googleCalendarOAuthService = new GoogleCalendarOAuthService(config);
   const todoistClient = new TodoistClient(config, tokenRepository);
@@ -29,10 +34,16 @@ async function main() {
     tokenRepository,
     googleCalendarOAuthService,
   );
+  const taskService = new TaskService(
+    todoistClient,
+    todoistTaskMapRepository,
+    actionLogRepository,
+  );
   const todayReviewService = new TodayReviewService(
     config,
     todoistClient,
     googleCalendarClient,
+    taskService,
   );
 
   await registerGuildCommands(config);
@@ -51,6 +62,7 @@ async function main() {
   const discord = createDiscordClient(console, {
     config,
     todayReviewService,
+    taskService,
   });
   await discord.start();
   const digestScheduler = startTodayDigestScheduler(

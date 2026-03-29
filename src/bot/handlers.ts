@@ -1,17 +1,21 @@
 import {
+  type AutocompleteInteraction,
   EmbedBuilder,
   MessageFlags,
   type ChatInputCommandInteraction,
 } from 'discord.js';
 
 import { TodayReviewService } from '../app/today/get-today-review';
+import { TaskService } from '../app/tasks/task-service';
 import { buildTodayEmbeds } from './renderers/today';
 import type { AppConfig } from '../config';
 import type { DailyEventSummary, DailyTaskSummary, PeriodReviewResult } from '../domain/daily-review';
+import { buildTaskAddSuccessEmbed, buildTaskDoneSuccessEmbed, buildTaskResolutionMessage } from './renderers/task';
 
 export interface CommandDependencies {
   config: AppConfig;
   todayReviewService: TodayReviewService;
+  taskService: TaskService;
 }
 
 export async function handleChatInputCommand(
@@ -36,6 +40,8 @@ export async function handleChatInputCommand(
         '`/today` shows overdue tasks, tasks due today, and today’s events.',
         '`/week` shows overdue work and the next 7 days.',
         '`/month` shows overdue work and the next 31 days.',
+        '`/task add` creates a Todoist task.',
+        '`/task done` completes a recently seen task by exact title.',
         '',
         'Connect providers:',
         `- Todoist: ${dependencies.config.publicBaseUrl}/auth/todoist/start`,
@@ -80,12 +86,70 @@ export async function handleChatInputCommand(
     return;
   }
 
+  if (interaction.commandName === 'task') {
+    const subcommand = interaction.options.getSubcommand(true);
+
+    if (subcommand === 'add') {
+      const content = interaction.options.getString('content', true);
+      const result = await dependencies.taskService.addTask(content);
+
+      await interaction.reply({
+        embeds: [buildTaskAddSuccessEmbed(result.task)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (subcommand === 'done') {
+      const task = interaction.options.getString('task', true);
+      const result = await dependencies.taskService.completeTask(task);
+
+      if (result.status === 'completed') {
+        await interaction.reply({
+          embeds: [buildTaskDoneSuccessEmbed(result.task)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: buildTaskResolutionMessage(result.resolution, result.status),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
   if (!interaction.replied && !interaction.deferred) {
     await interaction.reply({
       content: `Unknown command: ${interaction.commandName}`,
       flags: MessageFlags.Ephemeral,
     });
   }
+}
+
+export async function handleAutocompleteInteraction(
+  interaction: AutocompleteInteraction,
+  dependencies: CommandDependencies,
+): Promise<void> {
+  if (interaction.commandName !== 'task') {
+    await interaction.respond([]);
+    return;
+  }
+
+  const subcommand = interaction.options.getSubcommand(false);
+  const focused = interaction.options.getFocused(true);
+
+  if (subcommand !== 'done' || focused.name !== 'task') {
+    await interaction.respond([]);
+    return;
+  }
+
+  const suggestions = await dependencies.taskService.getTaskDoneAutocompleteSuggestions(
+    String(focused.value ?? ''),
+  );
+
+  await interaction.respond(suggestions);
 }
 
 function buildTaskField(

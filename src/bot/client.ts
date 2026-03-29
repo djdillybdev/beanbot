@@ -1,4 +1,5 @@
 import {
+  type AutocompleteInteraction,
   Client,
   Events,
   GatewayIntentBits,
@@ -6,7 +7,11 @@ import {
   type Interaction,
 } from 'discord.js';
 
-import { handleChatInputCommand, type CommandDependencies } from './handlers';
+import {
+  handleAutocompleteInteraction,
+  handleChatInputCommand,
+  type CommandDependencies,
+} from './handlers';
 
 export function createDiscordClient(
   logger: Pick<Console, 'info' | 'error'>,
@@ -21,16 +26,30 @@ export function createDiscordClient(
   });
 
   client.on(Events.InteractionCreate, async (interaction: Interaction) => {
-    if (!interaction.isChatInputCommand()) {
-      return;
-    }
-
     try {
+      if (interaction.isAutocomplete()) {
+        await handleAutocompleteInteraction(interaction as AutocompleteInteraction, dependencies);
+        return;
+      }
+
+      if (!interaction.isChatInputCommand()) {
+        return;
+      }
+
       await handleChatInputCommand(interaction, dependencies);
     } catch (error) {
       logger.error('Failed to handle interaction', error);
 
       const message = 'Command execution failed. Check the bot logs for details.';
+
+      if (interaction.isAutocomplete()) {
+        try {
+          await interaction.respond([]);
+        } catch {
+          // Ignore failed autocomplete fallback responses.
+        }
+        return;
+      }
 
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });

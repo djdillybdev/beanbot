@@ -7,6 +7,7 @@ import type {
   ReviewDayGroup,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
+import { TaskService } from '../tasks/task-service';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
 import { formatLocalDayLabel, getDateKeysInRange, getLocalDateParts } from '../../utils/time';
@@ -16,6 +17,7 @@ export class TodayReviewService {
     private readonly config: AppConfig,
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
+    private readonly taskService?: TaskService,
   ) {}
 
   async getReview(): Promise<DailyReviewResult> {
@@ -42,13 +44,19 @@ export class TodayReviewService {
         eventResult.reason instanceof Error ? eventResult.reason.message : 'Calendar fetch failed.';
     }
 
-    return {
-      overdueTasks: taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [],
-      dueTodayTasks: taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [],
+    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
+    const dueTodayTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const result = {
+      overdueTasks,
+      dueTodayTasks,
       todayEvents: eventResult.status === 'fulfilled' ? eventResult.value : [],
       todoistStatus,
       googleCalendarStatus,
     };
+
+    await this.refreshTaskCache([...overdueTasks, ...dueTodayTasks], todoistStatus.connected);
+
+    return result;
   }
 
   async getWeekReview(): Promise<PeriodReviewResult> {
@@ -84,15 +92,20 @@ export class TodayReviewService {
     }
 
     const startDate = getLocalDateParts(new Date(), this.config.timezone).date;
+    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
     const dueTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
     const events = eventResult.status === 'fulfilled' ? eventResult.value : [];
 
-    return {
-      overdueTasks: taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [],
+    const result = {
+      overdueTasks,
       dayGroups: buildDayGroups(startDate, days, dueTasks, events, this.config.timezone),
       todoistStatus,
       googleCalendarStatus,
     };
+
+    await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
+
+    return result;
   }
 
   private async buildTodoistStatus(): Promise<ProviderStatus> {
@@ -131,6 +144,18 @@ export class TodayReviewService {
         ? undefined
         : `Connect Google Calendar at ${this.config.publicBaseUrl}/auth/google/start`,
     };
+  }
+
+  private async refreshTaskCache(tasks: DailyTaskSummary[], todoistConnected: boolean) {
+    if (!todoistConnected || !this.taskService) {
+      return;
+    }
+
+    try {
+      await this.taskService.rememberTaskSummaries(tasks);
+    } catch {
+      // Cache refresh should not break read views.
+    }
   }
 }
 
