@@ -1,5 +1,5 @@
 import type { Logger } from '../logging/logger';
-import { TodayStatusService } from '../app/today/today-status-service';
+import type { LiveStatusRefresher } from '../app/today/today-status-service';
 
 const TODAY_STATUS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -7,19 +7,20 @@ export interface TodayStatusRefreshScheduler {
   stop: () => void;
 }
 
-export function startTodayStatusRefreshScheduler(
-  todayStatusService: TodayStatusService,
+export function startLiveStatusRefreshScheduler(
+  liveStatusService: LiveStatusRefresher,
   logger: Logger,
+  label: string,
 ): TodayStatusRefreshScheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
   const runCycle = async () => {
     try {
-      logger.debug('Running scheduled today status refresh poll');
-      await todayStatusService.refreshCurrentDayStatus('scheduled-poll');
+      logger.debug('Running scheduled live status refresh poll', { label });
+      await liveStatusService.refreshCurrentStatus('scheduled-poll');
     } catch (error) {
-      logger.error('Today status refresh poll failed', error);
+      logger.error('Live status refresh poll failed', error, { label });
     } finally {
       if (!stopped) {
         timer = setTimeout(() => {
@@ -43,3 +44,5 @@ export function startTodayStatusRefreshScheduler(
     },
   };
 }
+
+export const startTodayStatusRefreshScheduler = startLiveStatusRefreshScheduler;

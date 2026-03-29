@@ -1,8 +1,8 @@
 import type { Logger } from '../logging/logger';
 import type { AppConfig } from '../config';
-import { TodayStatusService } from '../app/today/today-status-service';
+import type { LiveStatusRefresher } from '../app/today/today-status-service';
 import { getLocalDateParts } from '../utils/time';
-import { syncTodayStatus } from './post-today-digest';
+import { syncLiveStatus } from './post-today-digest';
 
 const DAILY_DIGEST_HOUR = 8;
 
@@ -12,7 +12,7 @@ export interface TodayDigestScheduler {
 
 export function startTodayDigestScheduler(
   config: AppConfig,
-  todayStatusService: TodayStatusService,
+  todayStatusService: LiveStatusRefresher,
   logger: Logger,
 ): TodayDigestScheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -21,7 +21,7 @@ export function startTodayDigestScheduler(
   const runDigest = async (reason: 'startup' | 'scheduled') => {
     try {
       logger.info('Running today digest', { reason });
-      await syncTodayStatus(todayStatusService, logger, reason);
+      await syncLiveStatus(todayStatusService, logger, reason);
     } catch (error) {
       logger.error('Today digest failed', error, { reason });
     } finally {

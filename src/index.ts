@@ -13,8 +13,8 @@ import { ActionLogRepository } from './db/action-log-repository';
 import { CalendarEventMapRepository } from './db/calendar-event-map-repository';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
+import { PeriodStatusMessageRepository } from './db/period-status-message-repository';
 import { ReminderJobRepository } from './db/reminder-job-repository';
-import { TodayStatusMessageRepository } from './db/today-status-message-repository';
 import { TodoistTaskMapRepository } from './db/todoist-task-map-repository';
 import { GoogleCalendarClient } from './integrations/google-calendar/client';
 import { GoogleCalendarOAuthService } from './integrations/google-calendar/oauth';
@@ -24,7 +24,10 @@ import { startReminderScheduler } from './jobs/reminder-scheduler';
 import { createLogger } from './logging/logger';
 import { createServer } from './server/create-server';
 import { TodayStatusRefreshNotifier } from './app/today/today-status-refresh-notifier';
-import { TodayStatusService } from './app/today/today-status-service';
+import { buildMonthStatusEmbeds, buildTodayStatusEmbeds, buildWeekStatusEmbeds } from './bot/renderers/today';
+import { buildPeriodStatusSnapshot, buildTodayStatusSnapshot } from './app/today/status-snapshots';
+import { LiveStatusService } from './app/today/today-status-service';
+import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 
 async function main() {
   const config = createConfig();
@@ -47,7 +50,7 @@ async function main() {
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
-  const todayStatusMessageRepository = new TodayStatusMessageRepository(db);
+  const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
   const eventDraftStore = new EventDraftStore();
   const todayStatusRefreshNotifier = new TodayStatusRefreshNotifier(
     logger.child({ subsystem: 'today-status-refresh-notifier' }),
@@ -120,16 +123,52 @@ async function main() {
     logger: logger.child({ subsystem: 'bot-handlers' }),
   });
   await discord.start();
-  const todayStatusService = new TodayStatusService(
-    discord.client,
-    config,
-    todayReviewService,
-    todayStatusMessageRepository,
-    logger.child({ subsystem: 'today-status' }),
-  );
-  todayStatusRefreshNotifier.setHandler((reason) =>
-    todayStatusService.refreshCurrentDayStatus(reason),
-  );
+  const todayStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.todayChannelId,
+    channelEnvName: 'TODAY_CHANNEL_ID',
+    statusType: 'today',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'today-status' }),
+    getPeriodKey: (now) => getLocalDateParts(now, config.timezone).date,
+    getReview: (now) => todayReviewService.getReview(now),
+    buildSnapshot: buildTodayStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildTodayStatusEmbeds(config, periodKey, review, updatedAt),
+  });
+  const weekStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.weekChannelId,
+    channelEnvName: 'WEEK_CHANNEL_ID',
+    statusType: 'week',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'week-status' }),
+    getPeriodKey: (now) => getWeekBounds(now, config.timezone).periodKey,
+    getReview: (now) => todayReviewService.getWeekStatusReview(now),
+    buildSnapshot: buildPeriodStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildWeekStatusEmbeds(config, periodKey, review, updatedAt),
+  });
+  const monthStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.monthChannelId,
+    channelEnvName: 'MONTH_CHANNEL_ID',
+    statusType: 'month',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'month-status' }),
+    getPeriodKey: (now) => getMonthBounds(now, config.timezone).periodKey,
+    getReview: (now) => todayReviewService.getMonthStatusReview(now),
+    buildSnapshot: buildPeriodStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildMonthStatusEmbeds(config, periodKey, review, updatedAt),
+  });
+  todayStatusRefreshNotifier.setHandler(async (reason) => {
+    await todayStatusService.refreshCurrentStatus(reason);
+    await weekStatusService.refreshCurrentStatus(reason);
+    await monthStatusService.refreshCurrentStatus(reason);
+  });
+  await weekStatusService.refreshCurrentStatus('startup');
+  await monthStatusService.refreshCurrentStatus('startup');
   if (config.logsChannelId) {
     await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
   } else {
@@ -143,6 +182,17 @@ async function main() {
   const todayStatusRefreshScheduler = startTodayStatusRefreshScheduler(
     todayStatusService,
     logger.child({ subsystem: 'today-status-refresh' }),
+    'today',
+  );
+  const weekStatusRefreshScheduler = startTodayStatusRefreshScheduler(
+    weekStatusService,
+    logger.child({ subsystem: 'week-status-refresh' }),
+    'week',
+  );
+  const monthStatusRefreshScheduler = startTodayStatusRefreshScheduler(
+    monthStatusService,
+    logger.child({ subsystem: 'month-status-refresh' }),
+    'month',
   );
   const reminderScheduler = startReminderScheduler(
     discord.client,
@@ -154,6 +204,8 @@ async function main() {
     startupLogger.info('Received shutdown signal', { signal });
     digestScheduler.stop();
     todayStatusRefreshScheduler.stop();
+    weekStatusRefreshScheduler.stop();
+    monthStatusRefreshScheduler.stop();
     reminderScheduler.stop();
     httpServer.close();
     await discord.client.destroy();

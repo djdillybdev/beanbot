@@ -63,6 +63,47 @@ export function getDateKeysInRange(startDate: string, dayCount: number): string[
   return Array.from({ length: dayCount }, (_, index) => addDays(startDate, index));
 }
 
+export function getStartOfWeekDate(date: Date, timezone: string) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+  });
+  const weekday = formatter.format(date);
+  const currentDate = getLocalDateParts(date, timezone).date;
+  const offsetDays = getWeekdayOffset(weekday);
+
+  return addDays(currentDate, -offsetDays);
+}
+
+export function getWeekBounds(date: Date, timezone: string) {
+  const startDate = getStartOfWeekDate(date, timezone);
+  const endExclusiveDate = addDays(startDate, 7);
+
+  return {
+    startDate,
+    endExclusiveDate,
+    periodKey: startDate,
+    startUtc: new Date(localMidnightToUtc(startDate, timezone)).toISOString(),
+    endUtc: new Date(localMidnightToUtc(endExclusiveDate, timezone)).toISOString(),
+  };
+}
+
+export function getMonthBounds(date: Date, timezone: string) {
+  const local = getLocalDateParts(date, timezone);
+  const startDate = `${local.year}-${local.month}-01`;
+  const nextMonthYear = local.month === '12' ? Number(local.year) + 1 : Number(local.year);
+  const nextMonth = local.month === '12' ? 1 : Number(local.month) + 1;
+  const endExclusiveDate = `${String(nextMonthYear).padStart(4, '0')}-${String(nextMonth).padStart(2, '0')}-01`;
+
+  return {
+    startDate,
+    endExclusiveDate,
+    periodKey: `${local.year}-${local.month}`,
+    startUtc: new Date(localMidnightToUtc(startDate, timezone)).toISOString(),
+    endUtc: new Date(localMidnightToUtc(endExclusiveDate, timezone)).toISOString(),
+  };
+}
+
 export function parseLocalDateTimeInput(value: string, timezone: string): Date {
   const trimmed = value.trim();
   const match = trimmed.match(
@@ -118,6 +159,27 @@ function addDays(dateString: string, days: number): string {
   const date = new Date(Date.UTC(year, month - 1, day + days));
 
   return date.toISOString().slice(0, 10);
+}
+
+function getWeekdayOffset(weekday: string) {
+  switch (weekday) {
+    case 'Mon':
+      return 0;
+    case 'Tue':
+      return 1;
+    case 'Wed':
+      return 2;
+    case 'Thu':
+      return 3;
+    case 'Fri':
+      return 4;
+    case 'Sat':
+      return 5;
+    case 'Sun':
+      return 6;
+    default:
+      throw new Error(`Unsupported weekday value: ${weekday}`);
+  }
 }
 
 function localMidnightToUtc(localDate: string, timezone: string): number {

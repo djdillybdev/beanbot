@@ -56,6 +56,7 @@ export interface DailyReviewResult {
 export interface PeriodReviewResult {
   overdueTasks: DailyTaskSummary[];
   dayGroups: ReviewDayGroup[];
+  completedTasks?: CompletedTaskSummary[];
   todoistStatus: ProviderStatus;
   googleCalendarStatus: ProviderStatus;
 }

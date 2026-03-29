@@ -14,6 +14,7 @@ This repo now contains the foundation plus current Phase 5 work:
 - Drizzle + SQLite migrations for local config and OAuth token storage
 - Automated daily `#today` digest posting at 8:00 AM local time
 - Live `#today` status message that is edited throughout the day and kept as daily channel history
+- Live `#week` and `#month` status messages with rolling period history
 - Automated `#reminders` delivery for overdue tasks, timed tasks due soon, and upcoming one-off events
 - `#inbox` quick capture into Todoist via Quick Add
 - Structured runtime logging to local console and optional Discord `#logs`
@@ -37,8 +38,9 @@ Copy `.env.example` to `.env` and fill in:
 - `BOT_TIMEZONE`
 - `INBOX_CHANNEL_ID`
 - `TODAY_CHANNEL_ID`
+- `WEEK_CHANNEL_ID`
+- `MONTH_CHANNEL_ID`
 - `REMINDERS_CHANNEL_ID`
-- `PLANNING_CHANNEL_ID` (optional, recommended for `/week` and `/month`)
 - `LOGS_CHANNEL_ID` (optional, for Discord runtime logs)
 - `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`; default `info`)
 - `DISCORD_LOG_LEVEL` (`debug`, `info`, `warn`, or `error`; default `warn`)
@@ -106,6 +108,12 @@ The bot now keeps one live status message per local day in the configured `TODAY
 - polled every 5 minutes to catch external Todoist changes
 - updated immediately after bot-driven task and event changes
 - pinned for the current day, with older daily status messages left in channel history
+
+The bot also keeps one live current-period message in `WEEK_CHANNEL_ID` and `MONTH_CHANNEL_ID`:
+
+- `#week` tracks the current Monday-Sunday week and includes completed tasks for the week
+- `#month` tracks the current calendar month as an active planning view
+- both are created on startup, refreshed every 5 minutes, and updated immediately after bot-driven task and event changes
 
 ## Reminders
 

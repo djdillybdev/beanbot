@@ -1,0 +1,57 @@
+import type { DailyReviewResult, PeriodReviewResult } from '../../domain/daily-review';
+
+export function buildTodayStatusSnapshot(periodKey: string, review: DailyReviewResult) {
+  return JSON.stringify({
+    periodKey,
+    overdueTasks: review.overdueTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      dueLabel: task.dueLabel,
+      priority: task.priority,
+    })),
+    dueTodayTasks: review.dueTodayTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      dueLabel: task.dueLabel,
+      priority: task.priority,
+    })),
+    completedTodayTasks: review.completedTodayTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      completedAtUtc: task.completedAtUtc,
+      priority: task.priority,
+    })),
+    todayEvents: review.todayEvents.map((event) => ({
+      id: event.id,
+      title: event.title,
+      startLabel: event.startLabel,
+    })),
+    todoistStatusMessage: review.todoistStatus.message ?? null,
+    googleCalendarStatusMessage: review.googleCalendarStatus.message ?? null,
+  });
+}
+
+export function buildPeriodStatusSnapshot(periodKey: string, review: PeriodReviewResult) {
+  return JSON.stringify({
+    periodKey,
+    overdueTasks: review.overdueTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      dueLabel: task.dueLabel,
+      priority: task.priority,
+    })),
+    completedTasks: (review.completedTasks ?? []).map((task) => ({
+      id: task.id,
+      title: task.title,
+      completedAtUtc: task.completedAtUtc,
+      priority: task.priority,
+    })),
+    dayGroups: review.dayGroups.map((group) => ({
+      dateKey: group.dateKey,
+      taskIds: group.tasks.map((task) => task.id),
+      eventIds: group.events.map((event) => event.id),
+    })),
+    todoistStatusMessage: review.todoistStatus.message ?? null,
+    googleCalendarStatusMessage: review.googleCalendarStatus.message ?? null,
+  });
+}

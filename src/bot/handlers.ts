@@ -107,8 +107,9 @@ export async function handleChatInputCommand(
         'Intended channel layout:',
         '- `#inbox` for task capture and command entry',
         '- `#today` for daily summaries and `/today`',
+        '- `#week` for the live weekly status and `/week`',
+        '- `#month` for the live monthly status and `/month`',
         '- `#reminders` for reminder delivery',
-        '- `#planning` for `/week` and `/month`',
         '- `#logs` for runtime diagnostics and failures',
       ].join('\n'),
       flags: shouldUseEphemeralReply(interaction, dependencies.config, 'help')
@@ -653,11 +654,7 @@ function shouldUseEphemeralReply(
   }
 
   if (commandName === 'week' || commandName === 'month') {
-    if (config.planningChannelId) {
-      return interaction.channelId !== config.planningChannelId;
-    }
-
-    return true;
+    return interaction.channelId !== (commandName === 'week' ? config.weekChannelId : config.monthChannelId);
   }
 
   return interaction.channelId !== config.inboxChannelId;

@@ -14,8 +14,9 @@ export interface AppConfig {
   timezone: string;
   inboxChannelId: string;
   todayChannelId: string;
+  weekChannelId: string;
+  monthChannelId: string;
   remindersChannelId: string;
-  planningChannelId?: string;
   logsChannelId?: string;
   logLevel: LogLevel;
   discordLogLevel: LogLevel;
@@ -36,8 +37,9 @@ export function createConfig(): AppConfig {
     timezone: env.BOT_TIMEZONE,
     inboxChannelId: env.INBOX_CHANNEL_ID,
     todayChannelId: env.TODAY_CHANNEL_ID,
+    weekChannelId: env.WEEK_CHANNEL_ID,
+    monthChannelId: env.MONTH_CHANNEL_ID,
     remindersChannelId: env.REMINDERS_CHANNEL_ID,
-    planningChannelId: env.PLANNING_CHANNEL_ID,
     logsChannelId: env.LOGS_CHANNEL_ID,
     logLevel: env.LOG_LEVEL,
     discordLogLevel: env.DISCORD_LOG_LEVEL,

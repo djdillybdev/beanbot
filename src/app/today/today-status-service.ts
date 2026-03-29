@@ -1,137 +1,135 @@
-import type { Client, Message, TextChannel } from 'discord.js';
+import type { Client, EmbedBuilder, Message, TextChannel } from 'discord.js';
 
-import type { AppConfig } from '../../config';
-import { TodayStatusMessageRepository } from '../../db/today-status-message-repository';
-import type { DailyReviewResult } from '../../domain/daily-review';
 import type { Logger } from '../../logging/logger';
-import { getZonedDayBounds } from '../../utils/time';
-import { buildTodayStatusEmbeds } from '../../bot/renderers/today';
 import { resolveTextChannel } from '../../jobs/resolve-text-channel';
-import { TodayReviewService } from './get-today-review';
+import {
+  PeriodStatusMessageRepository,
+  type PeriodStatusType,
+} from '../../db/period-status-message-repository';
 
-export class TodayStatusService {
-  constructor(
-    private readonly client: Client,
-    private readonly config: AppConfig,
-    private readonly todayReviewService: TodayReviewService,
-    private readonly repository: TodayStatusMessageRepository,
-    private readonly logger: Logger,
-  ) {}
+export interface LiveStatusServiceOptions<TReview> {
+  client: Client;
+  channelId: string;
+  channelEnvName: string;
+  statusType: PeriodStatusType;
+  repository: PeriodStatusMessageRepository;
+  logger: Logger;
+  getPeriodKey: (now: Date) => string;
+  getReview: (now: Date) => Promise<TReview>;
+  buildSnapshot: (periodKey: string, review: TReview) => string;
+  buildEmbeds: (periodKey: string, review: TReview, updatedAt: Date) => EmbedBuilder[];
+}
 
-  async refreshCurrentDayStatus(reason: string, now = new Date()) {
-    const { localDate } = getZonedDayBounds(now, this.config.timezone);
-    const channel = await resolveTextChannel(this.client, this.config.todayChannelId, 'TODAY_CHANNEL_ID');
-    const review = await this.todayReviewService.getReview(now);
-    const snapshotJson = buildTodayStatusSnapshot(localDate, review);
-    const existing = await this.repository.findByDateKey(localDate, this.config.todayChannelId);
+export interface LiveStatusRefresher {
+  refreshCurrentStatus(reason: string, now?: Date): Promise<void>;
+}
+
+export class LiveStatusService<TReview> implements LiveStatusRefresher {
+  constructor(private readonly options: LiveStatusServiceOptions<TReview>) {}
+
+  async refreshCurrentStatus(reason: string, now = new Date()) {
+    const periodKey = this.options.getPeriodKey(now);
+    const channel = await resolveTextChannel(
+      this.options.client,
+      this.options.channelId,
+      this.options.channelEnvName,
+    );
+    const review = await this.options.getReview(now);
+    const snapshotJson = this.options.buildSnapshot(periodKey, review);
+    const existing = await this.options.repository.find(
+      this.options.statusType,
+      periodKey,
+      this.options.channelId,
+    );
 
     if (!existing) {
-      await this.createNewDayStatusMessage(channel, localDate, review, snapshotJson, reason);
+      await this.createStatusMessage(channel, periodKey, review, snapshotJson, reason, 'created');
       return;
     }
 
-    const message = await this.fetchExistingMessage(channel, existing.messageId, localDate);
+    const message = await this.fetchExistingMessage(channel, existing.messageId, periodKey);
 
     if (!message) {
-      await this.createReplacementDayStatusMessage(channel, localDate, review, snapshotJson, reason);
+      await this.createStatusMessage(channel, periodKey, review, snapshotJson, reason, 'recreated');
       return;
     }
 
     if (existing.snapshotJson !== snapshotJson) {
       await message.edit({
-        embeds: buildTodayStatusEmbeds(this.config, localDate, review, now),
+        embeds: this.options.buildEmbeds(periodKey, review, now),
       });
-      await this.repository.upsert({
-        dateKey: localDate,
-        channelId: this.config.todayChannelId,
+      await this.options.repository.upsert({
+        statusType: this.options.statusType,
+        periodKey,
+        channelId: this.options.channelId,
         messageId: message.id,
         snapshotJson,
         isPinned: existing.isPinned,
       });
-      this.logger.info('Updated today status message', {
+      this.options.logger.info('Updated live status message', {
         reason,
-        dateKey: localDate,
-        channelId: this.config.todayChannelId,
+        statusType: this.options.statusType,
+        periodKey,
+        channelId: this.options.channelId,
         messageId: message.id,
       });
     } else {
-      this.logger.debug('Skipped today status edit because rendered snapshot is unchanged.', {
+      this.options.logger.debug('Skipped live status edit because rendered snapshot is unchanged.', {
         reason,
-        dateKey: localDate,
-        channelId: this.config.todayChannelId,
+        statusType: this.options.statusType,
+        periodKey,
+        channelId: this.options.channelId,
         messageId: message.id,
       });
     }
 
-    await this.ensureCurrentMessagePinned(localDate, message);
-    await this.unpinOlderMessages(localDate, channel);
+    await this.ensureCurrentMessagePinned(periodKey, message);
+    await this.unpinOlderMessages(periodKey, channel);
   }
 
-  private async createNewDayStatusMessage(
+  private async createStatusMessage(
     channel: TextChannel,
-    localDate: string,
-    review: DailyReviewResult,
+    periodKey: string,
+    review: TReview,
     snapshotJson: string,
     reason: string,
+    mode: 'created' | 'recreated',
   ) {
     const message = await channel.send({
-      embeds: buildTodayStatusEmbeds(this.config, localDate, review, new Date()),
+      embeds: this.options.buildEmbeds(periodKey, review, new Date()),
     });
 
-    await this.repository.upsert({
-      dateKey: localDate,
-      channelId: this.config.todayChannelId,
+    await this.options.repository.upsert({
+      statusType: this.options.statusType,
+      periodKey,
+      channelId: this.options.channelId,
       messageId: message.id,
       snapshotJson,
       isPinned: false,
     });
 
-    await this.ensureCurrentMessagePinned(localDate, message);
-    await this.unpinOlderMessages(localDate, channel);
-    this.logger.info('Created today status message', {
-      reason,
-      dateKey: localDate,
-      channelId: this.config.todayChannelId,
-      messageId: message.id,
-    });
+    await this.ensureCurrentMessagePinned(periodKey, message);
+    await this.unpinOlderMessages(periodKey, channel);
+    this.options.logger[mode === 'created' ? 'info' : 'warn'](
+      mode === 'created' ? 'Created live status message' : 'Recreated missing live status message',
+      {
+        reason,
+        statusType: this.options.statusType,
+        periodKey,
+        channelId: this.options.channelId,
+        messageId: message.id,
+      },
+    );
   }
 
-  private async createReplacementDayStatusMessage(
-    channel: TextChannel,
-    localDate: string,
-    review: DailyReviewResult,
-    snapshotJson: string,
-    reason: string,
-  ) {
-    const message = await channel.send({
-      embeds: buildTodayStatusEmbeds(this.config, localDate, review, new Date()),
-    });
-
-    await this.repository.upsert({
-      dateKey: localDate,
-      channelId: this.config.todayChannelId,
-      messageId: message.id,
-      snapshotJson,
-      isPinned: false,
-    });
-
-    await this.ensureCurrentMessagePinned(localDate, message);
-    await this.unpinOlderMessages(localDate, channel);
-    this.logger.warn('Recreated missing today status message', {
-      reason,
-      dateKey: localDate,
-      channelId: this.config.todayChannelId,
-      messageId: message.id,
-    });
-  }
-
-  private async fetchExistingMessage(channel: TextChannel, messageId: string, dateKey: string) {
+  private async fetchExistingMessage(channel: TextChannel, messageId: string, periodKey: string) {
     try {
       return await channel.messages.fetch(messageId);
     } catch (error) {
-      this.logger.warn('Stored today status message could not be fetched and will be recreated.', {
-        dateKey,
-        channelId: this.config.todayChannelId,
+      this.options.logger.warn('Stored live status message could not be fetched and will be recreated.', {
+        statusType: this.options.statusType,
+        periodKey,
+        channelId: this.options.channelId,
         messageId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -139,31 +137,37 @@ export class TodayStatusService {
     }
   }
 
-  private async ensureCurrentMessagePinned(dateKey: string, message: Message) {
+  private async ensureCurrentMessagePinned(periodKey: string, message: Message) {
     if (message.pinned) {
-      await this.repository.markPinned(dateKey, true);
+      await this.options.repository.markPinned(this.options.statusType, periodKey, true);
       return;
     }
 
     try {
       await message.pin();
-      await this.repository.markPinned(dateKey, true);
-      this.logger.info('Pinned active today status message', {
-        dateKey,
+      await this.options.repository.markPinned(this.options.statusType, periodKey, true);
+      this.options.logger.info('Pinned active live status message', {
+        statusType: this.options.statusType,
+        periodKey,
         messageId: message.id,
       });
     } catch (error) {
-      this.logger.warn('Failed to pin active today status message.', {
-        dateKey,
+      this.options.logger.warn('Failed to pin active live status message.', {
+        statusType: this.options.statusType,
+        periodKey,
         messageId: message.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      await this.repository.markPinned(dateKey, false);
+      await this.options.repository.markPinned(this.options.statusType, periodKey, false);
     }
   }
 
-  private async unpinOlderMessages(currentDateKey: string, channel: TextChannel) {
-    const previousPinnedRecords = await this.repository.listOtherPinned(this.config.todayChannelId, currentDateKey);
+  private async unpinOlderMessages(currentPeriodKey: string, channel: TextChannel) {
+    const previousPinnedRecords = await this.options.repository.listOtherPinned(
+      this.options.statusType,
+      this.options.channelId,
+      currentPeriodKey,
+    );
 
     for (const record of previousPinnedRecords) {
       try {
@@ -173,49 +177,20 @@ export class TodayStatusService {
           await message.unpin();
         }
 
-        await this.repository.markPinned(record.dateKey, false);
-        this.logger.info('Unpinned historical today status message', {
-          dateKey: record.dateKey,
+        await this.options.repository.markPinned(record.statusType, record.periodKey, false);
+        this.options.logger.info('Unpinned historical live status message', {
+          statusType: this.options.statusType,
+          periodKey: record.periodKey,
           messageId: record.messageId,
         });
       } catch (error) {
-        this.logger.warn('Failed to unpin historical today status message.', {
-          dateKey: record.dateKey,
+        this.options.logger.warn('Failed to unpin historical live status message.', {
+          statusType: this.options.statusType,
+          periodKey: record.periodKey,
           messageId: record.messageId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
   }
-}
-
-function buildTodayStatusSnapshot(localDate: string, review: DailyReviewResult) {
-  return JSON.stringify({
-    dateKey: localDate,
-    overdueTasks: review.overdueTasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      dueLabel: task.dueLabel,
-      priority: task.priority,
-    })),
-    dueTodayTasks: review.dueTodayTasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      dueLabel: task.dueLabel,
-      priority: task.priority,
-    })),
-    completedTodayTasks: review.completedTodayTasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      completedAtUtc: task.completedAtUtc,
-      priority: task.priority,
-    })),
-    todayEvents: review.todayEvents.map((event) => ({
-      id: event.id,
-      title: event.title,
-      startLabel: event.startLabel,
-    })),
-    todoistStatusMessage: review.todoistStatus.message ?? null,
-    googleCalendarStatusMessage: review.googleCalendarStatus.message ?? null,
-  });
 }

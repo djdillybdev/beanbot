@@ -126,3 +126,21 @@ export const todayStatusMessage = sqliteTable('today_status_message', {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const periodStatusMessage = sqliteTable('period_status_message', {
+  statusType: text('status_type').notNull(),
+  periodKey: text('period_key').notNull(),
+  channelId: text('channel_id').notNull(),
+  messageId: text('message_id').notNull(),
+  snapshotJson: text('snapshot_json').notNull(),
+  isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAtUtc: text('created_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAtUtc: text('updated_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  primary: uniqueIndex('period_status_message_type_period_idx').on(table.statusType, table.periodKey),
+  channelTypeIdx: index('period_status_message_channel_type_idx').on(table.channelId, table.statusType),
+}));

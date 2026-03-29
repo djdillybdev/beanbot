@@ -1,11 +1,11 @@
 import type { Logger } from '../logging/logger';
-import { TodayStatusService } from '../app/today/today-status-service';
+import type { LiveStatusRefresher } from '../app/today/today-status-service';
 
-export async function syncTodayStatus(
-  todayStatusService: TodayStatusService,
+export async function syncLiveStatus(
+  liveStatusService: LiveStatusRefresher,
   logger: Logger,
   reason: string,
 ) {
-  await todayStatusService.refreshCurrentDayStatus(reason);
-  logger.debug('Synchronized today status message', { reason });
+  await liveStatusService.refreshCurrentStatus(reason);
+  logger.debug('Synchronized live status message', { reason });
 }

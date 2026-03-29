@@ -12,7 +12,13 @@ import { TaskService } from '../tasks/task-service';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
-import { formatLocalDayLabel, getDateKeysInRange, getLocalDateParts } from '../../utils/time';
+import {
+  formatLocalDayLabel,
+  getDateKeysInRange,
+  getLocalDateParts,
+  getMonthBounds,
+  getWeekBounds,
+} from '../../utils/time';
 
 export class TodayReviewService {
   constructor(
@@ -92,6 +98,27 @@ export class TodayReviewService {
     return this.getPeriodReview(31);
   }
 
+  async getWeekStatusReview(now = new Date()): Promise<PeriodReviewResult> {
+    const bounds = getWeekBounds(now, this.config.timezone);
+    const today = getLocalDateParts(now, this.config.timezone).date;
+    const daysRemaining = Math.max(getDateDistance(today, bounds.endExclusiveDate), 1);
+    const base = await this.getPeriodStatusReview(bounds.startDate, bounds.endExclusiveDate, daysRemaining);
+    const completedTasks = await this.getCompletedTasksForRange(bounds.startUtc, bounds.endUtc);
+
+    return {
+      ...base,
+      completedTasks,
+    };
+  }
+
+  async getMonthStatusReview(now = new Date()): Promise<PeriodReviewResult> {
+    const bounds = getMonthBounds(now, this.config.timezone);
+    const today = getLocalDateParts(now, this.config.timezone).date;
+    const daysRemaining = Math.max(getDateDistance(today, bounds.endExclusiveDate), 1);
+
+    return this.getPeriodStatusReview(bounds.startDate, bounds.endExclusiveDate, daysRemaining);
+  }
+
   private async getPeriodReview(days: number): Promise<PeriodReviewResult> {
     this.logger?.debug('Building period review', { days });
     const todoistStatus = await this.buildTodoistStatus();
@@ -141,6 +168,82 @@ export class TodayReviewService {
     });
 
     return result;
+  }
+
+  private async getPeriodStatusReview(
+    startDate: string,
+    endExclusiveDate: string,
+    daysRemaining: number,
+  ): Promise<PeriodReviewResult> {
+    this.logger?.debug('Building live period status review', {
+      startDate,
+      endExclusiveDate,
+      daysRemaining,
+    });
+    const todoistStatus = await this.buildTodoistStatus();
+    const googleCalendarStatus = await this.buildGoogleStatus();
+
+    const [taskResult, eventResult] = await Promise.allSettled([
+      todoistStatus.connected
+        ? this.todoistClient.getTasksForUpcomingDays(daysRemaining)
+        : Promise.resolve({ overdueTasks: [], dueTodayTasks: [] }),
+      googleCalendarStatus.connected
+        ? this.googleCalendarClient.getEventsForUpcomingDays(daysRemaining)
+        : Promise.resolve([]),
+    ]);
+
+    if (taskResult.status === 'rejected') {
+      todoistStatus.connected = false;
+      todoistStatus.message = taskResult.reason instanceof Error ? taskResult.reason.message : 'Task fetch failed.';
+    }
+
+    if (eventResult.status === 'rejected') {
+      googleCalendarStatus.connected = false;
+      googleCalendarStatus.message =
+        eventResult.reason instanceof Error ? eventResult.reason.message : 'Calendar fetch failed.';
+    }
+
+    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
+    const dueTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const events = eventResult.status === 'fulfilled' ? eventResult.value : [];
+    const result = {
+      overdueTasks,
+      dayGroups: buildDayGroups(
+        startDate,
+        getDateDistance(startDate, endExclusiveDate),
+        dueTasks,
+        events,
+        this.config.timezone,
+      ),
+      todoistStatus,
+      googleCalendarStatus,
+    };
+
+    await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
+    await this.refreshEventCache(daysRemaining, googleCalendarStatus.connected);
+
+    return result;
+  }
+
+  private async getCompletedTasksForRange(startUtc: string, endUtc: string) {
+    if (!this.todoistClient.isConfigured()) {
+      return [];
+    }
+
+    if (!(await this.todoistClient.isConnected())) {
+      return [];
+    }
+
+    try {
+      return await this.todoistClient.getCompletedTasksInRange(startUtc, endUtc);
+    } catch (error) {
+      this.logger?.warn('Completed task range fetch failed', {
+        startUtc,
+        endUtc,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   private async buildTodoistStatus(): Promise<ProviderStatus> {
@@ -213,6 +316,13 @@ export class TodayReviewService {
       // Cache refresh should not break read views.
     }
   }
+}
+
+function getDateDistance(startDate: string, endExclusiveDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endExclusiveDate}T00:00:00.000Z`);
+
+  return Math.max(Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)), 1);
 }
 
 function buildDayGroups(

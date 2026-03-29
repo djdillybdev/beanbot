@@ -73,9 +73,13 @@ export class TodoistClient {
   }
 
   async getCompletedTasksForToday(now = new Date()): Promise<CompletedTaskSummary[]> {
-    const token = await this.requireToken();
     const dayBounds = getZonedDayBounds(now, this.config.timezone);
-    const tasks = await this.fetchCompletedTasksByCompletionDate(token, dayBounds.startUtc, dayBounds.endUtc);
+    return this.getCompletedTasksInRange(dayBounds.startUtc, dayBounds.endUtc);
+  }
+
+  async getCompletedTasksInRange(since: string, until: string): Promise<CompletedTaskSummary[]> {
+    const token = await this.requireToken();
+    const tasks = await this.fetchCompletedTasksByCompletionDate(token, since, until);
     const projects = await this.fetchProjects(token);
     const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
