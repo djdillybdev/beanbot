@@ -1,4 +1,4 @@
-import type { DailyReviewResult, PeriodReviewResult } from '../../domain/daily-review';
+import type { DailyReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
 
 export function buildTodayStatusSnapshot(periodKey: string, review: DailyReviewResult) {
   return JSON.stringify({
@@ -53,5 +53,16 @@ export function buildPeriodStatusSnapshot(periodKey: string, review: PeriodRevie
     })),
     todoistStatusMessage: review.todoistStatus.message ?? null,
     googleCalendarStatusMessage: review.googleCalendarStatus.message ?? null,
+  });
+}
+
+export function buildUpcomingStatusSnapshot(periodKey: string, review: UpcomingTaskReviewResult) {
+  return JSON.stringify({
+    periodKey,
+    dayGroups: review.dayGroups.map((group) => ({
+      dateKey: group.dateKey,
+      taskIds: group.tasks.map((task) => task.id),
+    })),
+    todoistStatusMessage: review.todoistStatus.message ?? null,
   });
 }

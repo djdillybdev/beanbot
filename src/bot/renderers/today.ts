@@ -1,7 +1,7 @@
 import { EmbedBuilder } from 'discord.js';
 
 import type { AppConfig } from '../../config';
-import type { DailyReviewResult, PeriodReviewResult } from '../../domain/daily-review';
+import type { DailyReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
 import { formatLocalDayLabel, formatLocalTime } from '../../utils/time';
 
 export function buildTodayEmbeds(config: AppConfig, review: DailyReviewResult) {
@@ -76,6 +76,47 @@ export function buildMonthStatusEmbeds(
     updatedAt,
     false,
   );
+}
+
+export function buildUpcomingStatusEmbeds(
+  config: AppConfig,
+  periodKey: string,
+  review: UpcomingTaskReviewResult,
+  updatedAt: Date,
+) {
+  const header = new EmbedBuilder()
+    .setTitle('Upcoming Tasks · Next 14 Days')
+    .setDescription(`Rolling window · Timezone: ${config.timezone}`)
+    .addFields(
+      buildStatusField('Todoist Status', review.todoistStatus.message, undefined),
+    )
+    .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` });
+
+  const sections = review.dayGroups.map((group) => renderDayGroup(group.label, group.tasks, []));
+  const chunks = chunkSections(sections, 3500);
+
+  if (chunks.length === 0) {
+    header.addFields({
+      name: 'Upcoming',
+      value: 'No upcoming tasks in the next 14 days.',
+      inline: false,
+    });
+
+    return [header];
+  }
+
+  const embeds = [header];
+
+  for (const [index, chunk] of chunks.entries()) {
+    embeds.push(
+      new EmbedBuilder()
+        .setTitle(index === 0 ? 'Upcoming Schedule' : 'Upcoming Schedule (cont.)')
+        .setDescription(chunk)
+        .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` }),
+    );
+  }
+
+  return embeds;
 }
 
 function buildTaskField(

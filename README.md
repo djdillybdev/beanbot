@@ -15,6 +15,7 @@ This repo now contains the foundation plus current Phase 5 work:
 - Automated daily `#today` digest posting at 8:00 AM local time
 - Live `#today` status message that is edited throughout the day and kept as daily channel history
 - Live `#week` and `#month` status messages with rolling period history
+- Live `#upcoming` message for rolling next-14-days tasks
 - Automated `#reminders` delivery for overdue tasks, timed tasks due soon, and upcoming one-off events
 - `#inbox` quick capture into Todoist via Quick Add
 - Structured runtime logging to local console and optional Discord `#logs`
@@ -40,6 +41,7 @@ Copy `.env.example` to `.env` and fill in:
 - `TODAY_CHANNEL_ID`
 - `WEEK_CHANNEL_ID`
 - `MONTH_CHANNEL_ID`
+- `UPCOMING_CHANNEL_ID`
 - `REMINDERS_CHANNEL_ID`
 - `LOGS_CHANNEL_ID` (optional, for Discord runtime logs)
 - `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`; default `info`)
@@ -114,6 +116,13 @@ The bot also keeps one live current-period message in `WEEK_CHANNEL_ID` and `MON
 - `#week` tracks the current Monday-Sunday week and includes completed tasks for the week
 - `#month` tracks the current calendar month as an active planning view
 - both are created on startup, refreshed every 5 minutes, and updated immediately after bot-driven task and event changes
+
+The bot also keeps one rolling message in `UPCOMING_CHANNEL_ID`:
+
+- task-only view for the next 14 days
+- grouped by day
+- no message history; the same message is edited in place
+- refreshed every 5 minutes and immediately after bot-driven task changes
 
 ## Reminders
 

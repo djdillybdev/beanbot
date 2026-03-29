@@ -18,6 +18,7 @@ export interface LiveStatusServiceOptions<TReview> {
   getReview: (now: Date) => Promise<TReview>;
   buildSnapshot: (periodKey: string, review: TReview) => string;
   buildEmbeds: (periodKey: string, review: TReview, updatedAt: Date) => EmbedBuilder[];
+  pinActiveMessage?: boolean;
 }
 
 export interface LiveStatusRefresher {
@@ -83,8 +84,10 @@ export class LiveStatusService<TReview> implements LiveStatusRefresher {
       });
     }
 
-    await this.ensureCurrentMessagePinned(periodKey, message);
-    await this.unpinOlderMessages(periodKey, channel);
+    if (this.options.pinActiveMessage !== false) {
+      await this.ensureCurrentMessagePinned(periodKey, message);
+      await this.unpinOlderMessages(periodKey, channel);
+    }
   }
 
   private async createStatusMessage(
@@ -108,8 +111,10 @@ export class LiveStatusService<TReview> implements LiveStatusRefresher {
       isPinned: false,
     });
 
-    await this.ensureCurrentMessagePinned(periodKey, message);
-    await this.unpinOlderMessages(periodKey, channel);
+    if (this.options.pinActiveMessage !== false) {
+      await this.ensureCurrentMessagePinned(periodKey, message);
+      await this.unpinOlderMessages(periodKey, channel);
+    }
     this.options.logger[mode === 'created' ? 'info' : 'warn'](
       mode === 'created' ? 'Created live status message' : 'Recreated missing live status message',
       {

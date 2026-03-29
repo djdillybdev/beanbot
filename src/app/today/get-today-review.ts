@@ -5,6 +5,7 @@ import type {
   PeriodReviewResult,
   ProviderStatus,
   ReviewDayGroup,
+  UpcomingTaskReviewResult,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
 import { EventService } from '../events/event-service';
@@ -117,6 +118,34 @@ export class TodayReviewService {
     const daysRemaining = Math.max(getDateDistance(today, bounds.endExclusiveDate), 1);
 
     return this.getPeriodStatusReview(bounds.startDate, bounds.endExclusiveDate, daysRemaining);
+  }
+
+  async getUpcomingTaskStatusReview(now = new Date()): Promise<UpcomingTaskReviewResult> {
+    this.logger?.debug('Building upcoming task status review');
+    const todoistStatus = await this.buildTodoistStatus();
+
+    const taskResult = await (todoistStatus.connected
+      ? this.todoistClient.getTasksForUpcomingDays(14)
+      : Promise.resolve({ overdueTasks: [], dueTodayTasks: [] })
+    ).catch((error) => {
+      todoistStatus.connected = false;
+      todoistStatus.message = error instanceof Error ? error.message : 'Task fetch failed.';
+      return { overdueTasks: [], dueTodayTasks: [] };
+    });
+
+    const today = getLocalDateParts(now, this.config.timezone).date;
+    const dayGroups = buildDayGroups(today, 14, taskResult.dueTodayTasks, [], this.config.timezone);
+    await this.refreshTaskCache(taskResult.dueTodayTasks, todoistStatus.connected);
+    this.logger?.info('Built upcoming task status review', {
+      dueTaskCount: taskResult.dueTodayTasks.length,
+      dayGroupCount: dayGroups.length,
+      todoistConnected: todoistStatus.connected,
+    });
+
+    return {
+      dayGroups,
+      todoistStatus,
+    };
   }
 
   private async getPeriodReview(days: number): Promise<PeriodReviewResult> {

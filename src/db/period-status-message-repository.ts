@@ -3,7 +3,7 @@ import { and, asc, eq, ne } from 'drizzle-orm';
 import type { Database } from './types';
 import { periodStatusMessage } from './schema';
 
-export type PeriodStatusType = 'today' | 'week' | 'month';
+export type PeriodStatusType = 'today' | 'week' | 'month' | 'upcoming';
 
 export interface PeriodStatusMessageRecord {
   statusType: PeriodStatusType;

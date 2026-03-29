@@ -109,6 +109,7 @@ export async function handleChatInputCommand(
         '- `#today` for daily summaries and `/today`',
         '- `#week` for the live weekly status and `/week`',
         '- `#month` for the live monthly status and `/month`',
+        '- `#upcoming` for a rolling next-14-days task view',
         '- `#reminders` for reminder delivery',
         '- `#logs` for runtime diagnostics and failures',
       ].join('\n'),

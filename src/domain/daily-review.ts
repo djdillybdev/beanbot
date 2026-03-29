@@ -60,3 +60,8 @@ export interface PeriodReviewResult {
   todoistStatus: ProviderStatus;
   googleCalendarStatus: ProviderStatus;
 }
+
+export interface UpcomingTaskReviewResult {
+  dayGroups: ReviewDayGroup[];
+  todoistStatus: ProviderStatus;
+}

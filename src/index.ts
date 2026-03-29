@@ -24,8 +24,8 @@ import { startReminderScheduler } from './jobs/reminder-scheduler';
 import { createLogger } from './logging/logger';
 import { createServer } from './server/create-server';
 import { TodayStatusRefreshNotifier } from './app/today/today-status-refresh-notifier';
-import { buildMonthStatusEmbeds, buildTodayStatusEmbeds, buildWeekStatusEmbeds } from './bot/renderers/today';
-import { buildPeriodStatusSnapshot, buildTodayStatusSnapshot } from './app/today/status-snapshots';
+import { buildMonthStatusEmbeds, buildTodayStatusEmbeds, buildUpcomingStatusEmbeds, buildWeekStatusEmbeds } from './bot/renderers/today';
+import { buildPeriodStatusSnapshot, buildTodayStatusSnapshot, buildUpcomingStatusSnapshot } from './app/today/status-snapshots';
 import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 
@@ -162,13 +162,31 @@ async function main() {
     buildEmbeds: (periodKey, review, updatedAt) =>
       buildMonthStatusEmbeds(config, periodKey, review, updatedAt),
   });
+  const upcomingStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.upcomingChannelId,
+    channelEnvName: 'UPCOMING_CHANNEL_ID',
+    statusType: 'upcoming',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'upcoming-status' }),
+    getPeriodKey: () => 'rolling-14d',
+    getReview: (now) => todayReviewService.getUpcomingTaskStatusReview(now),
+    buildSnapshot: buildUpcomingStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildUpcomingStatusEmbeds(config, periodKey, review, updatedAt),
+    pinActiveMessage: false,
+  });
   todayStatusRefreshNotifier.setHandler(async (reason) => {
     await todayStatusService.refreshCurrentStatus(reason);
     await weekStatusService.refreshCurrentStatus(reason);
     await monthStatusService.refreshCurrentStatus(reason);
+    if (reason.startsWith('task.')) {
+      await upcomingStatusService.refreshCurrentStatus(reason);
+    }
   });
   await weekStatusService.refreshCurrentStatus('startup');
   await monthStatusService.refreshCurrentStatus('startup');
+  await upcomingStatusService.refreshCurrentStatus('startup');
   if (config.logsChannelId) {
     await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
   } else {
@@ -194,6 +212,11 @@ async function main() {
     logger.child({ subsystem: 'month-status-refresh' }),
     'month',
   );
+  const upcomingStatusRefreshScheduler = startTodayStatusRefreshScheduler(
+    upcomingStatusService,
+    logger.child({ subsystem: 'upcoming-status-refresh' }),
+    'upcoming',
+  );
   const reminderScheduler = startReminderScheduler(
     discord.client,
     reminderService,
@@ -206,6 +229,7 @@ async function main() {
     todayStatusRefreshScheduler.stop();
     weekStatusRefreshScheduler.stop();
     monthStatusRefreshScheduler.stop();
+    upcomingStatusRefreshScheduler.stop();
     reminderScheduler.stop();
     httpServer.close();
     await discord.client.destroy();
