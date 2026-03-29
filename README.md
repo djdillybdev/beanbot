@@ -63,6 +63,9 @@ bun run dev
 - `/month` shows overdue work plus the next 31 days of tasks and events
 - `/task add` creates a Todoist task via quick add
 - `/task done` completes a recently seen task by exact title
+- `/event add` opens a guided Google Calendar event creation flow
+- `/event edit` opens a guided editor for a recent one-off Google Calendar event
+- `/event delete` deletes a recent one-off Google Calendar event
 
 ## Daily digest
 
@@ -77,3 +80,5 @@ After the bot is running locally, open these in your browser:
 
 - Todoist: `/auth/todoist/start`
 - Google Calendar: `/auth/google/start`
+
+If Google Calendar was already connected before phase 3, reconnect it so the bot receives write scope for event mutations.

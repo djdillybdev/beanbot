@@ -1,16 +1,19 @@
 import {
   type AutocompleteInteraction,
+  type ButtonInteraction,
   Client,
   Events,
   GatewayIntentBits,
   MessageFlags,
   type Interaction,
   type ModalSubmitInteraction,
+  type StringSelectMenuInteraction,
 } from 'discord.js';
 
 import {
   handleAutocompleteInteraction,
   handleChatInputCommand,
+  handleMessageComponentInteraction,
   handleModalSubmitInteraction,
   type CommandDependencies,
 } from './handlers';
@@ -36,6 +39,14 @@ export function createDiscordClient(
 
       if (interaction.isModalSubmit()) {
         await handleModalSubmitInteraction(interaction as ModalSubmitInteraction, dependencies);
+        return;
+      }
+
+      if (interaction.isButton() || interaction.isStringSelectMenu()) {
+        await handleMessageComponentInteraction(
+          interaction as ButtonInteraction | StringSelectMenuInteraction,
+          dependencies,
+        );
         return;
       }
 

@@ -17,6 +17,38 @@ export const slashCommands = [
     .setName('month')
     .setDescription('Show overdue work and the next 31 days of tasks and calendar events.'),
   new SlashCommandBuilder()
+    .setName('event')
+    .setDescription('Create, update, or delete Google Calendar events.')
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('add')
+        .setDescription('Create a new timed Google Calendar event with a guided picker.'),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('edit')
+        .setDescription('Edit a recently seen Google Calendar event.')
+        .addStringOption((option) =>
+          option
+            .setName('event')
+            .setDescription('Choose a recent event from suggestions.')
+            .setAutocomplete(true)
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('delete')
+        .setDescription('Delete a recently seen Google Calendar event.')
+        .addStringOption((option) =>
+          option
+            .setName('event')
+            .setDescription('Choose a recent event from suggestions.')
+            .setAutocomplete(true)
+            .setRequired(true),
+        ),
+    ),
+  new SlashCommandBuilder()
     .setName('task')
     .setDescription('Create, update, complete, reopen, or delete Todoist tasks.')
     .addSubcommand((subcommand) =>

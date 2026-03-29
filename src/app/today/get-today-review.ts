@@ -7,6 +7,7 @@ import type {
   ReviewDayGroup,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
+import { EventService } from '../events/event-service';
 import { TaskService } from '../tasks/task-service';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
@@ -18,6 +19,7 @@ export class TodayReviewService {
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
     private readonly taskService?: TaskService,
+    private readonly eventService?: EventService,
   ) {}
 
   async getReview(): Promise<DailyReviewResult> {
@@ -55,6 +57,7 @@ export class TodayReviewService {
     };
 
     await this.refreshTaskCache([...overdueTasks, ...dueTodayTasks], todoistStatus.connected);
+    await this.refreshEventCache(1, googleCalendarStatus.connected);
 
     return result;
   }
@@ -104,6 +107,7 @@ export class TodayReviewService {
     };
 
     await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
+    await this.refreshEventCache(days, googleCalendarStatus.connected);
 
     return result;
   }
@@ -153,6 +157,19 @@ export class TodayReviewService {
 
     try {
       await this.taskService.rememberTaskSummaries(tasks);
+    } catch {
+      // Cache refresh should not break read views.
+    }
+  }
+
+  private async refreshEventCache(days: number, googleConnected: boolean) {
+    if (!googleConnected || !this.eventService) {
+      return;
+    }
+
+    try {
+      const events = await this.googleCalendarClient.getEventRecordsForUpcomingDays(days);
+      await this.eventService.rememberEvents(events);
     } catch {
       // Cache refresh should not break read views.
     }

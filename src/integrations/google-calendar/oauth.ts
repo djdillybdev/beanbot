@@ -4,7 +4,7 @@ import { createSignedOAuthState, verifySignedOAuthState } from '../../utils/oaut
 
 const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
 interface GoogleTokenResponse {
   access_token: string;

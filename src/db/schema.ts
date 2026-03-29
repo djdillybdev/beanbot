@@ -77,3 +77,24 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const calendarEventMap = sqliteTable('calendar_event_map', {
+  googleEventId: text('google_event_id').primaryKey(),
+  calendarId: text('calendar_id').notNull(),
+  normalizedTitle: text('normalized_title').notNull(),
+  lastSeenSummary: text('last_seen_summary').notNull(),
+  lastSeenStartUtc: text('last_seen_start_utc').notNull(),
+  lastSeenEndUtc: text('last_seen_end_utc').notNull(),
+  lastSeenLocation: text('last_seen_location'),
+  lastSeenDescription: text('last_seen_description'),
+  lastSeenStartLabel: text('last_seen_start_label').notNull(),
+  lastSeenUrl: text('last_seen_url'),
+  eventStatus: text('event_status').notNull().default('active'),
+  isRecurring: integer('is_recurring', { mode: 'boolean' }).notNull().default(false),
+  createdAtUtc: text('created_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAtUtc: text('updated_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
