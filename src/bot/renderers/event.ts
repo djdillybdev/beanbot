@@ -1,36 +1,32 @@
 import { EmbedBuilder } from 'discord.js';
 
 import type { GoogleCalendarEventRecord } from '../../domain/event';
+import { formatEventRecordLine, truncateField } from './formatting';
 
 export function buildEventAddSuccessEmbed(event: GoogleCalendarEventRecord) {
-  return buildEventEmbed('Event Created', event, 'Created in Google Calendar.');
+  return buildEventEmbed('✅ Event Created', event, 'Saved to Google Calendar.');
 }
 
 export function buildEventEditSuccessEmbed(event: GoogleCalendarEventRecord) {
-  return buildEventEmbed('Event Updated', event, 'Updated in Google Calendar.');
+  return buildEventEmbed('✏️ Event Updated', event, 'Changes saved to Google Calendar.');
 }
 
 export function buildEventDeleteSuccessEmbed(event: GoogleCalendarEventRecord) {
-  return buildEventEmbed('Event Deleted', event, 'Deleted from Google Calendar.');
+  return buildEventEmbed('🗑️ Event Deleted', event, 'Removed from Google Calendar.');
 }
 
 function buildEventEmbed(title: string, event: GoogleCalendarEventRecord, statusMessage: string) {
   const fields = [
     {
-      name: 'Status',
-      value: statusMessage,
-      inline: false,
-    },
-    {
-      name: 'When',
-      value: event.startLabel,
+      name: '🗓 Event',
+      value: truncateField(formatEventRecordLine(event)),
       inline: false,
     },
   ];
 
   if (event.location) {
     fields.push({
-      name: 'Location',
+      name: '📍 Location',
       value: event.location,
       inline: false,
     });
@@ -38,7 +34,7 @@ function buildEventEmbed(title: string, event: GoogleCalendarEventRecord, status
 
   if (event.description) {
     fields.push({
-      name: 'Description',
+      name: '📝 Notes',
       value: truncateField(event.description),
       inline: false,
     });
@@ -46,22 +42,10 @@ function buildEventEmbed(title: string, event: GoogleCalendarEventRecord, status
 
   const embed = new EmbedBuilder()
     .setTitle(title)
+    .setDescription(statusMessage)
     .addFields(fields)
+    .setColor(0x3182ce)
     .setTimestamp(new Date());
 
-  if (event.url) {
-    embed.setDescription(`[${escapeMarkdown(event.title)}](${event.url})`);
-  } else {
-    embed.setDescription(escapeMarkdown(event.title));
-  }
-
   return embed;
-}
-
-function truncateField(value: string) {
-  return value.length <= 1024 ? value : `${value.slice(0, 1021)}...`;
-}
-
-function escapeMarkdown(value: string) {
-  return value.replaceAll('[', '\\[').replaceAll(']', '\\]');
 }

@@ -2,25 +2,46 @@ import { EmbedBuilder } from 'discord.js';
 
 import type { AppConfig } from '../../config';
 import type { DailyReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
-import { formatLocalDayLabel, formatLocalTime } from '../../utils/time';
+import { formatLocalDayLabel, formatLocalTime, getLocalDateParts } from '../../utils/time';
+import {
+  buildCompletedTaskField,
+  buildEventField,
+  buildProviderStatusField,
+  buildTaskField,
+  chunkSections,
+  getSummaryColor,
+  renderDayGroup,
+} from './formatting';
 
 export function buildTodayEmbeds(config: AppConfig, review: DailyReviewResult) {
+  const todayKey = getLocalDateParts(new Date(), config.timezone).date;
+
   return [
     new EmbedBuilder()
-      .setTitle('Today')
-      .setDescription(`Timezone: ${config.timezone}`)
+      .setTitle(`📅 Today · ${formatLocalDayLabel(todayKey, config.timezone)}`)
+      .setDescription(`Current day in ${config.timezone}`)
       .addFields(
-        buildTaskField('Overdue', review.overdueTasks),
-        buildTaskField('Due Today', review.dueTodayTasks),
-        buildEventField('Events Today', review.todayEvents),
-        buildStatusField(
-          'Provider Status',
-          review.todoistStatus.message,
-          review.googleCalendarStatus.message,
-        ),
+        buildTaskField('⏰ Overdue', review.overdueTasks, 'Nothing overdue.'),
+        buildTaskField('📝 Tasks', review.dueTodayTasks, 'No tasks due today.'),
+        buildEventField('🗓 Events', review.todayEvents, 'No events today.'),
+        buildProviderStatusField(review.todoistStatus, review.googleCalendarStatus),
+      )
+      .setColor(
+        getSummaryColor({
+          overdueCount: review.overdueTasks.length,
+          primaryCount: review.dueTodayTasks.length + review.todayEvents.length,
+        }),
       )
       .setTimestamp(new Date()),
   ];
+}
+
+export function buildWeekEmbeds(config: AppConfig, review: PeriodReviewResult) {
+  return buildPeriodEmbeds('📆 Week', 'Next 7 days', config.timezone, review);
+}
+
+export function buildMonthEmbeds(config: AppConfig, review: PeriodReviewResult) {
+  return buildPeriodEmbeds('🗓 Month', 'Next 31 days', config.timezone, review);
 }
 
 export function buildTodayStatusEmbeds(
@@ -31,20 +52,23 @@ export function buildTodayStatusEmbeds(
 ) {
   return [
     new EmbedBuilder()
-      .setTitle(`Today Status · ${formatLocalDayLabel(dateKey, config.timezone)}`)
-      .setDescription(`Timezone: ${config.timezone}`)
+      .setTitle(`📅 Today Status · ${formatLocalDayLabel(dateKey, config.timezone)}`)
+      .setDescription(`Live day card in ${config.timezone}`)
       .addFields(
-        buildTaskField('Overdue', review.overdueTasks),
-        buildTaskField('Due Today', review.dueTodayTasks),
-        buildCompletedTaskField('Completed', review.completedTodayTasks),
-        buildEventField('Events Today', review.todayEvents),
-        buildStatusField(
-          'Provider Status',
-          review.todoistStatus.message,
-          review.googleCalendarStatus.message,
-        ),
+        buildTaskField('⏰ Overdue', review.overdueTasks, 'Nothing overdue.'),
+        buildTaskField('📝 Tasks', review.dueTodayTasks, 'No tasks due today.'),
+        buildCompletedTaskField('✅ Completed', review.completedTodayTasks, 'Nothing completed yet.'),
+        buildEventField('🗓 Events', review.todayEvents, 'No events today.'),
+        buildProviderStatusField(review.todoistStatus, review.googleCalendarStatus),
       )
-      .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` }),
+      .setColor(
+        getSummaryColor({
+          overdueCount: review.overdueTasks.length,
+          primaryCount: review.dueTodayTasks.length + review.todayEvents.length,
+          completedCount: review.completedTodayTasks.length,
+        }),
+      )
+      .setFooter({ text: `Updated ${formatLocalTime(updatedAt, config.timezone)}` }),
   ];
 }
 
@@ -55,7 +79,7 @@ export function buildWeekStatusEmbeds(
   updatedAt: Date,
 ) {
   return buildLivePeriodEmbeds(
-    `Week Status · ${formatLocalDayLabel(periodKey, config.timezone)}`,
+    `📆 Week Status · ${formatLocalDayLabel(periodKey, config.timezone)}`,
     config.timezone,
     review,
     updatedAt,
@@ -70,7 +94,7 @@ export function buildMonthStatusEmbeds(
   updatedAt: Date,
 ) {
   return buildLivePeriodEmbeds(
-    `Month Status · ${periodKey}`,
+    `🗓 Month Status · ${periodKey}`,
     config.timezone,
     review,
     updatedAt,
@@ -80,24 +104,25 @@ export function buildMonthStatusEmbeds(
 
 export function buildUpcomingStatusEmbeds(
   config: AppConfig,
-  periodKey: string,
+  _periodKey: string,
   review: UpcomingTaskReviewResult,
   updatedAt: Date,
 ) {
+  const totalTasks = review.dayGroups.reduce((count, group) => count + group.tasks.length, 0);
+  const color = getSummaryColor({ primaryCount: totalTasks });
   const header = new EmbedBuilder()
-    .setTitle('Upcoming Tasks · Next 14 Days')
-    .setDescription(`Rolling window · Timezone: ${config.timezone}`)
-    .addFields(
-      buildStatusField('Todoist Status', review.todoistStatus.message, undefined),
-    )
+    .setTitle('📌 Upcoming Tasks · Next 14 Days')
+    .setDescription(`Rolling 14-day task view in ${config.timezone}`)
+    .addFields(buildProviderStatusField(review.todoistStatus))
+    .setColor(color)
     .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` });
 
-  const sections = review.dayGroups.map((group) => renderDayGroup(group.label, group.tasks, []));
+  const sections = review.dayGroups.map((group) => renderDayGroup(group, { taskOnly: true }));
   const chunks = chunkSections(sections, 3500);
 
   if (chunks.length === 0) {
     header.addFields({
-      name: 'Upcoming',
+      name: '📌 Upcoming',
       value: 'No upcoming tasks in the next 14 days.',
       inline: false,
     });
@@ -110,78 +135,14 @@ export function buildUpcomingStatusEmbeds(
   for (const [index, chunk] of chunks.entries()) {
     embeds.push(
       new EmbedBuilder()
-        .setTitle(index === 0 ? 'Upcoming Schedule' : 'Upcoming Schedule (cont.)')
+        .setTitle(index === 0 ? '📌 Upcoming Schedule' : '📌 Upcoming Schedule (cont.)')
         .setDescription(chunk)
-        .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` }),
+        .setColor(color)
+        .setFooter({ text: `Updated ${formatLocalTime(updatedAt, config.timezone)}` }),
     );
   }
 
   return embeds;
-}
-
-function buildTaskField(
-  label: string,
-  tasks: Array<{ title: string; dueLabel: string; url: string }>,
-) {
-  return {
-    name: label,
-    value:
-      tasks.length > 0
-        ? tasks
-            .map((task) => `- [${escapeMarkdown(task.title)}](${task.url}) · ${task.dueLabel}`)
-            .join('\n')
-            .slice(0, 1024)
-        : 'None.',
-    inline: false,
-  };
-}
-
-function buildEventField(
-  label: string,
-  events: Array<{ title: string; startLabel: string; url: string | null }>,
-) {
-  return {
-    name: label,
-    value:
-      events.length > 0
-        ? events
-            .map((event) =>
-              event.url
-                ? `- [${escapeMarkdown(event.title)}](${event.url}) · ${event.startLabel}`
-                : `- ${escapeMarkdown(event.title)} · ${event.startLabel}`,
-            )
-            .join('\n')
-            .slice(0, 1024)
-        : 'None.',
-    inline: false,
-  };
-}
-
-function buildCompletedTaskField(
-  label: string,
-  tasks: Array<{ title: string; completedLabel: string; url: string }>,
-) {
-  return {
-    name: label,
-    value:
-      tasks.length > 0
-        ? tasks
-            .map((task) => `- [${escapeMarkdown(task.title)}](${task.url}) · ${task.completedLabel}`)
-            .join('\n')
-            .slice(0, 1024)
-        : 'None yet.',
-    inline: false,
-  };
-}
-
-function buildStatusField(name: string, todoistMessage?: string, googleMessage?: string) {
-  const messages = [todoistMessage, googleMessage].filter(Boolean);
-
-  return {
-    name,
-    value: messages.length > 0 ? messages.join('\n') : 'Todoist and Google Calendar are connected.',
-    inline: false,
-  };
 }
 
 function buildLivePeriodEmbeds(
@@ -191,24 +152,30 @@ function buildLivePeriodEmbeds(
   updatedAt: Date,
   includeCompleted: boolean,
 ) {
+  const color = getSummaryColor({
+    overdueCount: review.overdueTasks.length,
+    primaryCount: review.dayGroups.reduce((count, group) => count + group.tasks.length + group.events.length, 0),
+    completedCount: review.completedTasks?.length ?? 0,
+  });
   const header = new EmbedBuilder()
     .setTitle(title)
-    .setDescription(`Timezone: ${timezone}`)
+    .setDescription(`Current planning window in ${timezone}`)
     .addFields(
-      buildTaskField('Overdue', review.overdueTasks),
+      buildTaskField('⏰ Overdue', review.overdueTasks, 'Nothing overdue.'),
       ...(includeCompleted
-        ? [buildCompletedTaskField('Completed', review.completedTasks ?? [])]
+        ? [buildCompletedTaskField('✅ Completed', review.completedTasks ?? [], 'Nothing completed yet.')]
         : []),
-      buildStatusField('Provider Status', review.todoistStatus.message, review.googleCalendarStatus.message),
+      buildProviderStatusField(review.todoistStatus, review.googleCalendarStatus),
     )
-    .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, timezone)}` });
+    .setColor(color)
+    .setFooter({ text: `Updated ${formatLocalTime(updatedAt, timezone)}` });
 
-  const sections = review.dayGroups.map((group) => renderDayGroup(group.label, group.tasks, group.events));
+  const sections = review.dayGroups.map((group) => renderDayGroup(group));
   const chunks = chunkSections(sections, 3500);
 
   if (chunks.length === 0) {
     header.addFields({
-      name: 'Upcoming',
+      name: '📌 Upcoming',
       value: 'No upcoming tasks or events in this period.',
       inline: false,
     });
@@ -223,6 +190,7 @@ function buildLivePeriodEmbeds(
       new EmbedBuilder()
         .setTitle(index === 0 ? `${title} Schedule` : `${title} Schedule (cont.)`)
         .setDescription(chunk)
+        .setColor(color)
         .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, timezone)}` }),
     );
   }
@@ -230,54 +198,50 @@ function buildLivePeriodEmbeds(
   return embeds;
 }
 
-function renderDayGroup(
-  label: string,
-  tasks: Array<{ title: string; dueLabel: string; url: string }>,
-  events: Array<{ title: string; startLabel: string; url: string | null }>,
+function buildPeriodEmbeds(
+  title: string,
+  windowLabel: string,
+  timezone: string,
+  review: PeriodReviewResult,
 ) {
-  const lines = [`**${label}**`];
+  const color = getSummaryColor({
+    overdueCount: review.overdueTasks.length,
+    primaryCount: review.dayGroups.reduce((count, group) => count + group.tasks.length + group.events.length, 0),
+  });
+  const header = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(`${windowLabel} in ${timezone}`)
+    .addFields(
+      buildTaskField('⏰ Overdue', review.overdueTasks, 'Nothing overdue.'),
+      buildProviderStatusField(review.todoistStatus, review.googleCalendarStatus),
+    )
+    .setColor(color)
+    .setTimestamp(new Date());
 
-  for (const task of tasks) {
-    lines.push(`- Task: [${escapeMarkdown(task.title)}](${task.url}) · ${task.dueLabel}`);
+  const sections = review.dayGroups.map((group) => renderDayGroup(group));
+  const chunks = chunkSections(sections, 3500);
+
+  if (chunks.length === 0) {
+    header.addFields({
+      name: '📌 Upcoming',
+      value: 'No upcoming tasks or events in this period.',
+      inline: false,
+    });
+
+    return [header];
   }
 
-  for (const event of events) {
-    lines.push(
-      event.url
-        ? `- Event: [${escapeMarkdown(event.title)}](${event.url}) · ${event.startLabel}`
-        : `- Event: ${escapeMarkdown(event.title)} · ${event.startLabel}`,
+  const embeds = [header];
+
+  for (const [index, chunk] of chunks.entries()) {
+    embeds.push(
+      new EmbedBuilder()
+        .setTitle(index === 0 ? `${title} Schedule` : `${title} Schedule (cont.)`)
+        .setDescription(chunk)
+        .setColor(color)
+        .setTimestamp(new Date()),
     );
   }
 
-  return lines.join('\n');
-}
-
-function chunkSections(sections: string[], maxLength: number) {
-  const chunks: string[] = [];
-  let current = '';
-
-  for (const section of sections) {
-    const next = current.length === 0 ? section : `${current}\n\n${section}`;
-
-    if (next.length <= maxLength) {
-      current = next;
-      continue;
-    }
-
-    if (current.length > 0) {
-      chunks.push(current);
-    }
-
-    current = section;
-  }
-
-  if (current.length > 0) {
-    chunks.push(current);
-  }
-
-  return chunks;
-}
-
-function escapeMarkdown(value: string) {
-  return value.replaceAll('[', '\\[').replaceAll(']', '\\]');
+  return embeds;
 }

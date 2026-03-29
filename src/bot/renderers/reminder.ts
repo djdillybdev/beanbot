@@ -4,10 +4,10 @@ import { formatLocalDateTimeInput } from '../../utils/time';
 export function buildReminderMessage(payload: ReminderPayload, timezone: string): string {
   if (payload.kind === 'task_overdue') {
     const parts = [
-      `Task overdue: **${payload.title}**`,
+      '⏰ Task overdue',
+      `**${payload.title}**`,
       payload.projectName ? `Project: ${payload.projectName}` : null,
       payload.dueLabel ? payload.dueLabel : `Overdue on ${payload.localDate}`,
-      `Priority ${payload.priority}`,
       payload.url,
     ];
 
@@ -17,7 +17,8 @@ export function buildReminderMessage(payload: ReminderPayload, timezone: string)
   if (payload.kind === 'task_due_soon') {
     const dueAt = formatLocalDateTimeInput(new Date(payload.dueDateTimeUtc), timezone);
     const parts = [
-      `Task due soon: **${payload.title}**`,
+      '⏳ Task due soon',
+      `**${payload.title}**`,
       payload.projectName ? `Project: ${payload.projectName}` : null,
       `Due at ${dueAt}`,
       payload.url,
@@ -28,8 +29,9 @@ export function buildReminderMessage(payload: ReminderPayload, timezone: string)
 
   const startsAt = formatLocalDateTimeInput(new Date(payload.startUtc), timezone);
   const parts = [
-    `Upcoming event: **${payload.title}**`,
-    `Starts at ${startsAt}`,
+    '🗓 Upcoming event',
+    `**${payload.title}**`,
+    `${startsAt}`,
     payload.location ? `Location: ${payload.location}` : null,
     payload.url ?? null,
   ];
@@ -42,11 +44,11 @@ export function buildOverdueReminderBatchMessage(payloads: TaskOverdueReminderPa
     return right.priority - left.priority || left.title.localeCompare(right.title);
   });
   const lines = sorted.map((payload) => {
-    const suffix = [payload.projectName, payload.dueLabel].filter(Boolean).join(' | ');
+    const suffix = [payload.projectName, payload.dueLabel].filter(Boolean).join(' · ');
     return suffix.length > 0
-      ? `- **${payload.title}** (${suffix}) ${payload.url}`
-      : `- **${payload.title}** ${payload.url}`;
+      ? `• **${payload.title}** · ${suffix}\n${payload.url}`
+      : `• **${payload.title}**\n${payload.url}`;
   });
 
-  return ['Overdue tasks:', ...lines].join('\n');
+  return ['⏰ Overdue tasks', ...lines].join('\n');
 }
