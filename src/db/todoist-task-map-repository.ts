@@ -123,6 +123,39 @@ export class TodoistTaskMapRepository {
 
     return row ? mapRowToTaskRecord(row) : null;
   }
+
+  async findByIds(taskIds: string[]): Promise<TodoistTaskRecord[]> {
+    if (taskIds.length === 0) {
+      return [];
+    }
+
+    const rows = await this.db.query.todoistTaskMap.findMany({
+      where: inArray(todoistTaskMap.todoistTaskId, taskIds),
+      limit: taskIds.length,
+    });
+
+    return rows.map(mapRowToTaskRecord);
+  }
+
+  async listByLabel(label: string, statuses?: TaskStatus[]): Promise<Array<TodoistTaskRecord & { updatedAtUtc: string }>> {
+    const rows = await this.db.query.todoistTaskMap.findMany({
+      where: statuses
+        ? and(
+            inArray(todoistTaskMap.taskStatus, statuses),
+            like(todoistTaskMap.lastSeenLabelsCsv, `%${escapeLike(label)}%`),
+          )
+        : like(todoistTaskMap.lastSeenLabelsCsv, `%${escapeLike(label)}%`),
+      orderBy: [desc(todoistTaskMap.updatedAtUtc)],
+      limit: 500,
+    });
+
+    return rows
+      .filter((row) => deserializeLabels(row.lastSeenLabelsCsv)?.includes(label))
+      .map((row) => ({
+        ...mapRowToTaskRecord(row),
+        updatedAtUtc: row.updatedAtUtc,
+      }));
+  }
 }
 
 function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTaskRecord {

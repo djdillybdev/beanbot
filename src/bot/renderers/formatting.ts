@@ -149,6 +149,14 @@ export function truncateField(value: string): string {
   return value.length <= EMBED_FIELD_LIMIT ? value : `${value.slice(0, EMBED_FIELD_LIMIT - 3)}...`;
 }
 
+export function buildMetricField(label: string, value: string): APIEmbedField {
+  return {
+    name: label,
+    value: truncateField(value),
+    inline: true,
+  };
+}
+
 function buildLinkedTitle(title: string, url: string): string {
   return `[${escapeMarkdown(title)}](${url})`;
 }

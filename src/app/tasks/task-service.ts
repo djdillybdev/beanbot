@@ -362,6 +362,7 @@ export class TaskService {
         dueLabel: task.dueLabel,
         dueDate: task.dateKey,
         dueDateTimeUtc: undefined,
+        labels: task.labels,
         url: task.url,
         taskStatus: 'active',
       });

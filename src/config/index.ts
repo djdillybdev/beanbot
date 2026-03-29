@@ -16,6 +16,7 @@ export interface AppConfig {
   todayChannelId: string;
   weekChannelId: string;
   monthChannelId: string;
+  habitsChannelId: string;
   upcomingChannelId: string;
   remindersChannelId: string;
   logsChannelId?: string;
@@ -40,6 +41,7 @@ export function createConfig(): AppConfig {
     todayChannelId: env.TODAY_CHANNEL_ID,
     weekChannelId: env.WEEK_CHANNEL_ID,
     monthChannelId: env.MONTH_CHANNEL_ID,
+    habitsChannelId: env.HABITS_CHANNEL_ID,
     upcomingChannelId: env.UPCOMING_CHANNEL_ID,
     remindersChannelId: env.REMINDERS_CHANNEL_ID,
     logsChannelId: env.LOGS_CHANNEL_ID,

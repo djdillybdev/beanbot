@@ -117,6 +117,7 @@ export class TodoistClient {
         projectName: task.project_id ? projectNames.get(task.project_id) : undefined,
         dueLabel: classification.label,
         dueSortKey: classification.sortKey,
+        labels: task.labels ?? undefined,
         url: `https://app.todoist.com/app/task/${task.id}`,
       };
 
@@ -639,6 +640,7 @@ function mapCompletedTaskSummary(
     completedAtUtc: task.completedAtUtc,
     completedLabel: `Done at ${formatLocalTime(new Date(task.completedAtUtc), timezone)}`,
     completedSortKey: task.completedAtUtc,
+    labels: undefined,
     url: task.url,
   };
 }

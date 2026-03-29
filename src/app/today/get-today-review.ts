@@ -1,14 +1,23 @@
 import type {
+  CompletedTaskSummary,
   DailyEventSummary,
   DailyReviewResult,
   DailyTaskSummary,
+  HabitReviewResult,
   PeriodReviewResult,
   ProviderStatus,
   ReviewDayGroup,
   UpcomingTaskReviewResult,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
+import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import { EventService } from '../events/event-service';
+import {
+  buildHabitReviewResult,
+  mapCompletedHabitEntry,
+  splitCompletedTasksByHabitLabel,
+  splitTasksByHabitLabel,
+} from '../habits/habit-review';
 import { TaskService } from '../tasks/task-service';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
@@ -26,6 +35,7 @@ export class TodayReviewService {
     private readonly config: AppConfig,
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
+    private readonly taskMapRepository: TodoistTaskMapRepository,
     private readonly taskService?: TaskService,
     private readonly eventService?: EventService,
     private readonly logger?: Logger,
@@ -65,9 +75,12 @@ export class TodayReviewService {
         eventResult.reason instanceof Error ? eventResult.reason.message : 'Calendar fetch failed.';
     }
 
-    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
-    const dueTodayTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
-    const completedTodayTasks = completedTaskResult.status === 'fulfilled' ? completedTaskResult.value : [];
+    const overdueTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
+    const dueTodayTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const completedTodayTasksRaw = completedTaskResult.status === 'fulfilled' ? completedTaskResult.value : [];
+    const { nonHabits: overdueTasks } = splitTasksByHabitLabel(overdueTasksRaw);
+    const { nonHabits: dueTodayTasks } = splitTasksByHabitLabel(dueTodayTasksRaw);
+    const completedTodayTasks = await this.filterCompletedPlanningTasks(completedTodayTasksRaw);
     const result = {
       overdueTasks,
       dueTodayTasks,
@@ -77,7 +90,7 @@ export class TodayReviewService {
       googleCalendarStatus,
     };
 
-    await this.refreshTaskCache([...overdueTasks, ...dueTodayTasks], todoistStatus.connected);
+    await this.refreshTaskCache([...overdueTasksRaw, ...dueTodayTasksRaw], todoistStatus.connected);
     await this.refreshEventCache(1, googleCalendarStatus.connected);
     this.logger?.info('Built today review', {
       overdueCount: overdueTasks.length,
@@ -108,7 +121,7 @@ export class TodayReviewService {
 
     return {
       ...base,
-      completedTasks,
+      completedTasks: await this.filterCompletedPlanningTasks(completedTasks),
     };
   }
 
@@ -134,7 +147,13 @@ export class TodayReviewService {
     });
 
     const today = getLocalDateParts(now, this.config.timezone).date;
-    const dayGroups = buildDayGroups(today, 14, taskResult.dueTodayTasks, [], this.config.timezone);
+    const dayGroups = buildDayGroups(
+      today,
+      14,
+      splitTasksByHabitLabel(taskResult.dueTodayTasks).nonHabits,
+      [],
+      this.config.timezone,
+    );
     await this.refreshTaskCache(taskResult.dueTodayTasks, todoistStatus.connected);
     this.logger?.info('Built upcoming task status review', {
       dueTaskCount: taskResult.dueTodayTasks.length,
@@ -146,6 +165,46 @@ export class TodayReviewService {
       dayGroups,
       todoistStatus,
     };
+  }
+
+  async getHabitReview(now = new Date()): Promise<HabitReviewResult> {
+    this.logger?.debug('Building habit review');
+    const todoistStatus = await this.buildTodoistStatus();
+    const taskResult = await (todoistStatus.connected
+      ? this.todoistClient.getDailyTasks()
+      : Promise.resolve({ overdueTasks: [], dueTodayTasks: [] })
+    ).catch((error) => {
+      todoistStatus.connected = false;
+      todoistStatus.message = error instanceof Error ? error.message : 'Task fetch failed.';
+      return { overdueTasks: [], dueTodayTasks: [] };
+    });
+
+    const overdueHabits = splitTasksByHabitLabel(taskResult.overdueTasks).habits;
+    const dueTodayHabits = splitTasksByHabitLabel(taskResult.dueTodayTasks).habits;
+    const completedHabits = await this.getCompletedHabitsForDate(now);
+    const history = await this.taskMapRepository.listByLabel('habit', ['completed']);
+
+    await this.refreshTaskCache([...taskResult.overdueTasks, ...taskResult.dueTodayTasks], todoistStatus.connected);
+
+    return buildHabitReviewResult(
+      now,
+      this.config.timezone,
+      overdueHabits,
+      dueTodayHabits,
+      completedHabits,
+      history.map((task) => ({
+        id: task.id,
+        title: task.title,
+        normalizedTitle: task.normalizedTitle,
+        labels: task.labels,
+        completedAtUtc: task.updatedAtUtc,
+        url: task.url,
+        priority: task.priority,
+        projectId: task.projectId,
+        projectName: task.projectName,
+      })),
+      todoistStatus,
+    );
   }
 
   private async getPeriodReview(days: number): Promise<PeriodReviewResult> {
@@ -174,8 +233,10 @@ export class TodayReviewService {
     }
 
     const startDate = getLocalDateParts(new Date(), this.config.timezone).date;
-    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
-    const dueTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const overdueTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
+    const dueTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const { nonHabits: overdueTasks } = splitTasksByHabitLabel(overdueTasksRaw);
+    const { nonHabits: dueTasks } = splitTasksByHabitLabel(dueTasksRaw);
     const events = eventResult.status === 'fulfilled' ? eventResult.value : [];
 
     const result = {
@@ -185,7 +246,7 @@ export class TodayReviewService {
       googleCalendarStatus,
     };
 
-    await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
+    await this.refreshTaskCache([...overdueTasksRaw, ...dueTasksRaw], todoistStatus.connected);
     await this.refreshEventCache(days, googleCalendarStatus.connected);
     this.logger?.info('Built period review', {
       days,
@@ -232,8 +293,10 @@ export class TodayReviewService {
         eventResult.reason instanceof Error ? eventResult.reason.message : 'Calendar fetch failed.';
     }
 
-    const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
-    const dueTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const overdueTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
+    const dueTasksRaw = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const { nonHabits: overdueTasks } = splitTasksByHabitLabel(overdueTasksRaw);
+    const { nonHabits: dueTasks } = splitTasksByHabitLabel(dueTasksRaw);
     const events = eventResult.status === 'fulfilled' ? eventResult.value : [];
     const result = {
       overdueTasks,
@@ -248,7 +311,7 @@ export class TodayReviewService {
       googleCalendarStatus,
     };
 
-    await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
+    await this.refreshTaskCache([...overdueTasksRaw, ...dueTasksRaw], todoistStatus.connected);
     await this.refreshEventCache(daysRemaining, googleCalendarStatus.connected);
 
     return result;
@@ -273,6 +336,43 @@ export class TodayReviewService {
       });
       return [];
     }
+  }
+
+  private async getCompletedHabitsForDate(now: Date) {
+    const targetDate = getLocalDateParts(now, this.config.timezone).date;
+    const completedHabits = await this.taskMapRepository.listByLabel('habit', ['completed']);
+
+    return completedHabits
+      .filter((task) => getLocalDateParts(new Date(task.updatedAtUtc), this.config.timezone).date === targetDate)
+      .map((task) =>
+        mapCompletedHabitEntry(
+          {
+            id: task.id,
+            title: task.title,
+            normalizedTitle: task.normalizedTitle,
+            labels: task.labels,
+            completedAtUtc: task.updatedAtUtc,
+            url: task.url,
+            priority: task.priority,
+            projectId: task.projectId,
+            projectName: task.projectName,
+          },
+          this.config.timezone,
+        ),
+      )
+      .sort((left, right) => left.completedSortKey.localeCompare(right.completedSortKey));
+  }
+
+  private async filterCompletedPlanningTasks(tasks: CompletedTaskSummary[]) {
+    const taskMapById = new Map(
+      (await this.taskMapRepository.findByIds(tasks.map((task) => task.id))).map((task) => [task.id, task]),
+    );
+    const enriched = tasks.map((task) => ({
+      ...task,
+      labels: taskMapById.get(task.id)?.labels,
+    }));
+
+    return splitCompletedTasksByHabitLabel(enriched).nonHabits;
   }
 
   private async buildTodoistStatus(): Promise<ProviderStatus> {

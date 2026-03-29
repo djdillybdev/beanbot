@@ -24,8 +24,19 @@ import { startReminderScheduler } from './jobs/reminder-scheduler';
 import { createLogger } from './logging/logger';
 import { createServer } from './server/create-server';
 import { TodayStatusRefreshNotifier } from './app/today/today-status-refresh-notifier';
-import { buildMonthStatusEmbeds, buildTodayStatusEmbeds, buildUpcomingStatusEmbeds, buildWeekStatusEmbeds } from './bot/renderers/today';
-import { buildPeriodStatusSnapshot, buildTodayStatusSnapshot, buildUpcomingStatusSnapshot } from './app/today/status-snapshots';
+import {
+  buildHabitsStatusEmbeds,
+  buildMonthStatusEmbeds,
+  buildTodayStatusEmbeds,
+  buildUpcomingStatusEmbeds,
+  buildWeekStatusEmbeds,
+} from './bot/renderers/today';
+import {
+  buildHabitStatusSnapshot,
+  buildPeriodStatusSnapshot,
+  buildTodayStatusSnapshot,
+  buildUpcomingStatusSnapshot,
+} from './app/today/status-snapshots';
 import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 
@@ -91,6 +102,7 @@ async function main() {
     config,
     todoistClient,
     googleCalendarClient,
+    todoistTaskMapRepository,
     taskService,
     eventService,
     logger.child({ subsystem: 'today-review' }),
@@ -162,6 +174,19 @@ async function main() {
     buildEmbeds: (periodKey, review, updatedAt) =>
       buildMonthStatusEmbeds(config, periodKey, review, updatedAt),
   });
+  const habitsStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.habitsChannelId,
+    channelEnvName: 'HABITS_CHANNEL_ID',
+    statusType: 'habits',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'habits-status' }),
+    getPeriodKey: (now) => getLocalDateParts(now, config.timezone).date,
+    getReview: (now) => todayReviewService.getHabitReview(now),
+    buildSnapshot: buildHabitStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildHabitsStatusEmbeds(config, periodKey, review, updatedAt),
+  });
   const upcomingStatusService = new LiveStatusService({
     client: discord.client,
     channelId: config.upcomingChannelId,
@@ -180,12 +205,14 @@ async function main() {
     await todayStatusService.refreshCurrentStatus(reason);
     await weekStatusService.refreshCurrentStatus(reason);
     await monthStatusService.refreshCurrentStatus(reason);
+    await habitsStatusService.refreshCurrentStatus(reason);
     if (reason.startsWith('task.')) {
       await upcomingStatusService.refreshCurrentStatus(reason);
     }
   });
   await weekStatusService.refreshCurrentStatus('startup');
   await monthStatusService.refreshCurrentStatus('startup');
+  await habitsStatusService.refreshCurrentStatus('startup');
   await upcomingStatusService.refreshCurrentStatus('startup');
   if (config.logsChannelId) {
     await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
@@ -212,6 +239,11 @@ async function main() {
     logger.child({ subsystem: 'month-status-refresh' }),
     'month',
   );
+  const habitsStatusRefreshScheduler = startTodayStatusRefreshScheduler(
+    habitsStatusService,
+    logger.child({ subsystem: 'habits-status-refresh' }),
+    'habits',
+  );
   const upcomingStatusRefreshScheduler = startTodayStatusRefreshScheduler(
     upcomingStatusService,
     logger.child({ subsystem: 'upcoming-status-refresh' }),
@@ -229,6 +261,7 @@ async function main() {
     todayStatusRefreshScheduler.stop();
     weekStatusRefreshScheduler.stop();
     monthStatusRefreshScheduler.stop();
+    habitsStatusRefreshScheduler.stop();
     upcomingStatusRefreshScheduler.stop();
     reminderScheduler.stop();
     httpServer.close();

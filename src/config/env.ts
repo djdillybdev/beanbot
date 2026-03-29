@@ -16,6 +16,7 @@ const envSchema = z.object({
   TODAY_CHANNEL_ID: requiredString('TODAY_CHANNEL_ID'),
   WEEK_CHANNEL_ID: requiredString('WEEK_CHANNEL_ID'),
   MONTH_CHANNEL_ID: requiredString('MONTH_CHANNEL_ID'),
+  HABITS_CHANNEL_ID: requiredString('HABITS_CHANNEL_ID'),
   UPCOMING_CHANNEL_ID: requiredString('UPCOMING_CHANNEL_ID'),
   REMINDERS_CHANNEL_ID: requiredString('REMINDERS_CHANNEL_ID'),
   LOGS_CHANNEL_ID: z.string().min(1).optional(),

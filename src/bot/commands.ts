@@ -17,6 +17,9 @@ export const slashCommands = [
     .setName('month')
     .setDescription('Show overdue work and the next 31 days of tasks and calendar events.'),
   new SlashCommandBuilder()
+    .setName('habits')
+    .setDescription('Show today’s habit tasks, completions, and streaks.'),
+  new SlashCommandBuilder()
     .setName('event')
     .setDescription('Create, update, or delete Google Calendar events.')
     .addSubcommand((subcommand) =>

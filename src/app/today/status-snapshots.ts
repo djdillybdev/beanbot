@@ -1,4 +1,9 @@
-import type { DailyReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
+import type {
+  DailyReviewResult,
+  HabitReviewResult,
+  PeriodReviewResult,
+  UpcomingTaskReviewResult,
+} from '../../domain/daily-review';
 
 export function buildTodayStatusSnapshot(periodKey: string, review: DailyReviewResult) {
   return JSON.stringify({
@@ -62,6 +67,33 @@ export function buildUpcomingStatusSnapshot(periodKey: string, review: UpcomingT
     dayGroups: review.dayGroups.map((group) => ({
       dateKey: group.dateKey,
       taskIds: group.tasks.map((task) => task.id),
+    })),
+    todoistStatusMessage: review.todoistStatus.message ?? null,
+  });
+}
+
+export function buildHabitStatusSnapshot(periodKey: string, review: HabitReviewResult) {
+  return JSON.stringify({
+    periodKey,
+    overdueHabits: review.overdueHabits.map((task) => ({
+      id: task.id,
+      title: task.title,
+      dueLabel: task.dueLabel,
+    })),
+    dueTodayHabits: review.dueTodayHabits.map((task) => ({
+      id: task.id,
+      title: task.title,
+      dueLabel: task.dueLabel,
+    })),
+    completedTodayHabits: review.completedTodayHabits.map((task) => ({
+      id: task.id,
+      title: task.title,
+      completedAtUtc: task.completedAtUtc,
+    })),
+    streaks: review.streaks.map((streak) => ({
+      normalizedTitle: streak.normalizedTitle,
+      currentStreak: streak.currentStreak,
+      completedToday: streak.completedToday,
     })),
     todoistStatusMessage: review.todoistStatus.message ?? null,
   });

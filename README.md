@@ -15,6 +15,7 @@ This repo now contains the foundation plus current Phase 5 work:
 - Automated daily `#today` digest posting at 8:00 AM local time
 - Live `#today` status message that is edited throughout the day and kept as daily channel history
 - Live `#week` and `#month` status messages with rolling period history
+- Live `#habits` status message for daily habit tracking
 - Live `#upcoming` message for rolling next-14-days tasks
 - Automated `#reminders` delivery for overdue tasks, timed tasks due soon, and upcoming one-off events
 - `#inbox` quick capture into Todoist via Quick Add
@@ -41,6 +42,7 @@ Copy `.env.example` to `.env` and fill in:
 - `TODAY_CHANNEL_ID`
 - `WEEK_CHANNEL_ID`
 - `MONTH_CHANNEL_ID`
+- `HABITS_CHANNEL_ID`
 - `UPCOMING_CHANNEL_ID`
 - `REMINDERS_CHANNEL_ID`
 - `LOGS_CHANNEL_ID` (optional, for Discord runtime logs)
@@ -76,6 +78,7 @@ bun run dev
 - `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
 - `/week` shows overdue work plus the next 7 days of tasks and events
 - `/month` shows overdue work plus the next 31 days of tasks and events
+- `/habits` shows today’s habit tasks, completed habits, and streaks
 - `/task add` creates a Todoist task with explicit structured fields
 - `/task done` completes a recently seen task by exact title
 - `/event add` opens a guided Google Calendar event creation flow
@@ -116,6 +119,12 @@ The bot also keeps one live current-period message in `WEEK_CHANNEL_ID` and `MON
 - `#week` tracks the current Monday-Sunday week and includes completed tasks for the week
 - `#month` tracks the current calendar month as an active planning view
 - both are created on startup, refreshed every 5 minutes, and updated immediately after bot-driven task and event changes
+
+The bot also keeps one live daily habit message in `HABITS_CHANNEL_ID`:
+
+- tasks labeled `habit` are excluded from `/today`, `/week`, `/month`, and `#upcoming`
+- `#habits` shows overdue habits, habits left today, completed habits today, and streak counts from local bot-observed history
+- the message is created on startup, refreshed every 5 minutes, and updated immediately after bot-driven task changes
 
 The bot also keeps one rolling message in `UPCOMING_CHANNEL_ID`:
 

@@ -7,6 +7,7 @@ export interface DailyTaskSummary {
   projectName?: string;
   dueLabel: string;
   dueSortKey: string;
+  labels?: string[];
   url: string;
 }
 
@@ -19,6 +20,7 @@ export interface CompletedTaskSummary {
   completedAtUtc: string;
   completedLabel: string;
   completedSortKey: string;
+  labels?: string[];
   url: string;
 }
 
@@ -64,4 +66,25 @@ export interface PeriodReviewResult {
 export interface UpcomingTaskReviewResult {
   dayGroups: ReviewDayGroup[];
   todoistStatus: ProviderStatus;
+}
+
+export interface HabitStreakSummary {
+  normalizedTitle: string;
+  title: string;
+  currentStreak: number;
+  completedToday: boolean;
+}
+
+export interface HabitReviewResult {
+  overdueHabits: DailyTaskSummary[];
+  dueTodayHabits: DailyTaskSummary[];
+  completedTodayHabits: CompletedTaskSummary[];
+  streaks: HabitStreakSummary[];
+  todoistStatus: ProviderStatus;
+  stats: {
+    trackedHabitCount: number;
+    completedTodayCount: number;
+    remainingTodayCount: number;
+    longestCurrentStreak: number;
+  };
 }

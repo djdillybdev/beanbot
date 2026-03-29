@@ -20,7 +20,7 @@ import { EventDraftStore, type EventDraft } from './event-draft-store';
 import { TodayReviewService } from '../app/today/get-today-review';
 import { EventService } from '../app/events/event-service';
 import { TaskService } from '../app/tasks/task-service';
-import { buildMonthEmbeds, buildTodayEmbeds, buildWeekEmbeds } from './renderers/today';
+import { buildHabitsEmbeds, buildMonthEmbeds, buildTodayEmbeds, buildWeekEmbeds } from './renderers/today';
 import type { AppConfig } from '../config';
 import type { GoogleCalendarEventRecord } from '../domain/event';
 import { formatLocalDateTimeInput, formatLocalDayLabel, getDateKeysInRange, parseLocalDateTimeInput } from '../utils/time';
@@ -86,6 +86,7 @@ export async function handleChatInputCommand(
         '`/today` shows overdue tasks, tasks due today, and today’s events.',
         '`/week` shows overdue work and the next 7 days.',
         '`/month` shows overdue work and the next 31 days.',
+        '`/habits` shows today’s habit tasks, completions, and streaks.',
         '`/task add` creates a Todoist task.',
         '`/task done` completes a recently seen active task.',
         '`/task edit` opens a prefilled edit modal for a recent active task.',
@@ -108,6 +109,7 @@ export async function handleChatInputCommand(
         '- `#today` for daily summaries and `/today`',
         '- `#week` for the live weekly status and `/week`',
         '- `#month` for the live monthly status and `/month`',
+        '- `#habits` for the live habit status and `/habits`',
         '- `#upcoming` for a rolling next-14-days task view',
         '- `#reminders` for reminder delivery',
         '- `#logs` for runtime diagnostics and failures',
@@ -147,6 +149,17 @@ export async function handleChatInputCommand(
     await interaction.reply({
       embeds: buildMonthEmbeds(dependencies.config, review),
       flags: shouldUseEphemeralReply(interaction, dependencies.config, 'month')
+        ? MessageFlags.Ephemeral
+        : undefined,
+    });
+    return;
+  }
+
+  if (interaction.commandName === 'habits') {
+    const review = await dependencies.todayReviewService.getHabitReview();
+    await interaction.reply({
+      embeds: buildHabitsEmbeds(dependencies.config, review),
+      flags: shouldUseEphemeralReply(interaction, dependencies.config, 'habits')
         ? MessageFlags.Ephemeral
         : undefined,
     });
@@ -647,14 +660,20 @@ function toPriority(value: number | null | undefined): 1 | 2 | 3 | 4 | undefined
 function shouldUseEphemeralReply(
   interaction: ChatInputCommandInteraction,
   config: AppConfig,
-  commandName: 'help' | 'today' | 'week' | 'month',
+  commandName: 'help' | 'today' | 'week' | 'month' | 'habits',
 ) {
   if (commandName === 'today') {
     return interaction.channelId !== config.todayChannelId;
   }
 
-  if (commandName === 'week' || commandName === 'month') {
-    return interaction.channelId !== (commandName === 'week' ? config.weekChannelId : config.monthChannelId);
+  if (commandName === 'week' || commandName === 'month' || commandName === 'habits') {
+    return interaction.channelId !== (
+      commandName === 'week'
+        ? config.weekChannelId
+        : commandName === 'month'
+          ? config.monthChannelId
+          : config.habitsChannelId
+    );
   }
 
   return interaction.channelId !== config.inboxChannelId;

@@ -1,16 +1,18 @@
 import { EmbedBuilder } from 'discord.js';
 
 import type { AppConfig } from '../../config';
-import type { DailyReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
+import type { DailyReviewResult, HabitReviewResult, PeriodReviewResult, UpcomingTaskReviewResult } from '../../domain/daily-review';
 import { formatLocalDayLabel, formatLocalTime, getLocalDateParts } from '../../utils/time';
 import {
   buildCompletedTaskField,
   buildEventField,
+  buildMetricField,
   buildProviderStatusField,
   buildTaskField,
   chunkSections,
   getSummaryColor,
   renderDayGroup,
+  truncateField,
 } from './formatting';
 
 export function buildTodayEmbeds(config: AppConfig, review: DailyReviewResult) {
@@ -42,6 +44,10 @@ export function buildWeekEmbeds(config: AppConfig, review: PeriodReviewResult) {
 
 export function buildMonthEmbeds(config: AppConfig, review: PeriodReviewResult) {
   return buildPeriodEmbeds('🗓 Month', 'Next 31 days', config.timezone, review);
+}
+
+export function buildHabitsEmbeds(config: AppConfig, review: HabitReviewResult) {
+  return buildHabitEmbeds('🌱 Habits', config.timezone, review, new Date(), false);
 }
 
 export function buildTodayStatusEmbeds(
@@ -99,6 +105,21 @@ export function buildMonthStatusEmbeds(
     review,
     updatedAt,
     false,
+  );
+}
+
+export function buildHabitsStatusEmbeds(
+  config: AppConfig,
+  periodKey: string,
+  review: HabitReviewResult,
+  updatedAt: Date,
+) {
+  return buildHabitEmbeds(
+    `🌱 Habit Status · ${formatLocalDayLabel(periodKey, config.timezone)}`,
+    config.timezone,
+    review,
+    updatedAt,
+    true,
   );
 }
 
@@ -244,4 +265,55 @@ function buildPeriodEmbeds(
   }
 
   return embeds;
+}
+
+function buildHabitEmbeds(
+  title: string,
+  timezone: string,
+  review: HabitReviewResult,
+  updatedAt: Date,
+  isLive: boolean,
+) {
+  const color = getSummaryColor({
+    overdueCount: review.overdueHabits.length,
+    primaryCount: review.dueTodayHabits.length,
+    completedCount: review.completedTodayHabits.length,
+  });
+
+  const header = new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(`Daily habit tracker in ${timezone}`)
+    .addFields(
+      buildMetricField('Tracked', String(review.stats.trackedHabitCount)),
+      buildMetricField('Done Today', String(review.stats.completedTodayCount)),
+      buildMetricField('Left Today', String(review.stats.remainingTodayCount)),
+      buildMetricField('Best Streak', String(review.stats.longestCurrentStreak)),
+      buildTaskField('⏰ Overdue Habits', review.overdueHabits, 'No overdue habits.'),
+      buildTaskField('🌱 Habits Left Today', review.dueTodayHabits, 'All habits are done for today.'),
+      buildCompletedTaskField('✅ Done Today', review.completedTodayHabits, 'No completed habits yet.'),
+      {
+        name: '🔥 Streaks',
+        value: truncateField(
+          review.streaks.length > 0
+            ? review.streaks
+                .map(
+                  (streak) =>
+                    `${streak.completedToday ? '✅' : '⬜'} ${streak.title} · ${streak.currentStreak} day${streak.currentStreak === 1 ? '' : 's'}`,
+                )
+                .join('\n')
+            : 'No tracked habit history yet.',
+        ),
+        inline: false,
+      },
+      buildProviderStatusField(review.todoistStatus),
+    )
+    .setColor(color);
+
+  if (isLive) {
+    header.setFooter({ text: `Updated ${formatLocalTime(updatedAt, timezone)}` });
+  } else {
+    header.setTimestamp(updatedAt);
+  }
+
+  return [header];
 }
