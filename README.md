@@ -1,2 +1,68 @@
 # beanbot
-discord bot for personal task and calendar management
+
+Discord bot for personal task and calendar management.
+
+## Current foundation
+
+This repo now contains the foundation plus the Phase 1 read-only surface:
+
+- Bun + TypeScript runtime
+- `discord.js` bot with guild-scoped slash command registration
+- Express server with `GET /health`
+- Todoist OAuth + read integration
+- Google Calendar OAuth + read integration
+- Drizzle + SQLite migrations for local config and OAuth token storage
+- `/ping`, `/help`, `/today`, `/week`, and `/month` slash commands
+
+## Prerequisites
+
+- Bun `>= 1.1.0`
+- A Discord application and bot token
+- A private Discord guild for command registration
+
+## Environment
+
+Copy `.env.example` to `.env` and fill in:
+
+- `DISCORD_TOKEN`
+- `DISCORD_APPLICATION_ID`
+- `DISCORD_GUILD_ID`
+- `DATABASE_URL`
+- `BOT_TIMEZONE`
+- `OAUTH_STATE_SECRET` for OAuth flows
+- `HOST`
+- `PORT`
+- `PUBLIC_BASE_URL`
+- `TODOIST_CLIENT_ID`
+- `TODOIST_CLIENT_SECRET`
+- `TODOIST_REDIRECT_URI`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `GOOGLE_DEFAULT_CALENDAR_ID`
+
+## Commands
+
+```bash
+bun install
+bun run db:migrate
+bun run register:commands
+bun run dev
+```
+
+`bun run dev` also applies migrations and registers guild commands at startup before logging the bot in.
+
+## Current command surface
+
+- `/ping` returns a basic health response
+- `/help` shows the current command list, provider connect links, and intended channel layout
+- `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
+- `/week` shows overdue work plus the next 7 days of tasks and events
+- `/month` shows overdue work plus the next 31 days of tasks and events
+
+## OAuth connect endpoints
+
+After the bot is running locally, open these in your browser:
+
+- Todoist: `/auth/todoist/start`
+- Google Calendar: `/auth/google/start`
