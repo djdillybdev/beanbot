@@ -13,6 +13,7 @@ interface TodoistTaskMapRowInput {
   projectName?: string;
   dueLabel?: string;
   dueDate?: string;
+  dueDateTimeUtc?: string;
   dueString?: string;
   labels?: string[];
   url: string;
@@ -36,6 +37,7 @@ export class TodoistTaskMapRepository {
         lastSeenProjectName: task.projectName ?? null,
         lastSeenDueLabel: task.dueLabel ?? null,
         lastSeenDueDate: task.dueDate ?? null,
+        lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
         lastSeenDueString: task.dueString ?? null,
         lastSeenLabelsCsv: serializeLabels(task.labels),
         lastSeenUrl: task.url,
@@ -53,6 +55,7 @@ export class TodoistTaskMapRepository {
           lastSeenProjectName: task.projectName ?? null,
           lastSeenDueLabel: task.dueLabel ?? null,
           lastSeenDueDate: task.dueDate ?? null,
+          lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
           lastSeenDueString: task.dueString ?? null,
           lastSeenLabelsCsv: serializeLabels(task.labels),
           lastSeenUrl: task.url,
@@ -132,6 +135,7 @@ function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTas
     projectName: row.lastSeenProjectName ?? undefined,
     dueLabel: row.lastSeenDueLabel ?? undefined,
     dueDate: row.lastSeenDueDate ?? undefined,
+    dueDateTimeUtc: row.lastSeenDueDatetimeUtc ?? undefined,
     dueString: row.lastSeenDueString ?? undefined,
     labels: deserializeLabels(row.lastSeenLabelsCsv),
     url: row.lastSeenUrl,

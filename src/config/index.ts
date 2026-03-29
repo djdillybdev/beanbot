@@ -12,6 +12,7 @@ export interface AppConfig {
   publicBaseUrl: string;
   timezone: string;
   todayChannelId: string;
+  remindersChannelId: string;
 }
 
 export function createConfig(): AppConfig {
@@ -28,5 +29,6 @@ export function createConfig(): AppConfig {
     publicBaseUrl: env.PUBLIC_BASE_URL ?? `http://${env.HOST}:${env.PORT}`,
     timezone: env.BOT_TIMEZONE,
     todayChannelId: env.TODAY_CHANNEL_ID,
+    remindersChannelId: env.REMINDERS_CHANNEL_ID,
   };
 }

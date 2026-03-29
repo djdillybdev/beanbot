@@ -13,6 +13,7 @@ This repo now contains the foundation plus the Phase 1 read-only surface:
 - Google Calendar OAuth + read integration
 - Drizzle + SQLite migrations for local config and OAuth token storage
 - Automated daily `#today` digest posting at 8:00 AM local time
+- Automated `#reminders` delivery for overdue tasks, timed tasks due soon, and upcoming one-off events
 - `/ping`, `/help`, `/today`, `/week`, `/month`, `/task add`, and `/task done` slash commands
 
 ## Prerequisites
@@ -31,6 +32,7 @@ Copy `.env.example` to `.env` and fill in:
 - `DATABASE_URL`
 - `BOT_TIMEZONE`
 - `TODAY_CHANNEL_ID`
+- `REMINDERS_CHANNEL_ID`
 - `OAUTH_STATE_SECRET` for OAuth flows
 - `HOST`
 - `PORT`
@@ -73,6 +75,14 @@ The bot now posts the `/today` digest into the configured `TODAY_CHANNEL_ID` cha
 
 - once on bot startup for testing
 - every day at 8:00 AM in `BOT_TIMEZONE`
+
+## Reminders
+
+The bot now scans every minute and posts reminders into `REMINDERS_CHANNEL_ID`:
+
+- overdue tasks once per local day at 9:00 AM after they become overdue
+- timed Todoist tasks 1 hour before the due time
+- one-off Google Calendar events 30 minutes before the start time
 
 ## OAuth connect endpoints
 

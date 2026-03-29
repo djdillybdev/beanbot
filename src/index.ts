@@ -1,4 +1,5 @@
 import { EventService } from './app/events/event-service';
+import { ReminderService } from './app/reminders/reminder-service';
 import { TodayReviewService } from './app/today/get-today-review';
 import { TaskService } from './app/tasks/task-service';
 import { createConfig } from './config';
@@ -11,11 +12,13 @@ import { ActionLogRepository } from './db/action-log-repository';
 import { CalendarEventMapRepository } from './db/calendar-event-map-repository';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
+import { ReminderJobRepository } from './db/reminder-job-repository';
 import { TodoistTaskMapRepository } from './db/todoist-task-map-repository';
 import { GoogleCalendarClient } from './integrations/google-calendar/client';
 import { GoogleCalendarOAuthService } from './integrations/google-calendar/oauth';
 import { TodoistClient } from './integrations/todoist/client';
 import { TodoistOAuthService } from './integrations/todoist/oauth';
+import { startReminderScheduler } from './jobs/reminder-scheduler';
 import { createServer } from './server/create-server';
 
 async function main() {
@@ -30,6 +33,7 @@ async function main() {
   const tokenRepository = new OAuthTokenRepository(db);
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
+  const reminderJobRepository = new ReminderJobRepository(db);
   const eventDraftStore = new EventDraftStore();
   const todoistOAuthService = new TodoistOAuthService(config);
   const googleCalendarOAuthService = new GoogleCalendarOAuthService(config);
@@ -39,16 +43,24 @@ async function main() {
     tokenRepository,
     googleCalendarOAuthService,
   );
+  const reminderService = new ReminderService(
+    config,
+    reminderJobRepository,
+    todoistClient,
+    googleCalendarClient,
+  );
   const taskService = new TaskService(
     todoistClient,
     todoistTaskMapRepository,
     actionLogRepository,
+    reminderService,
   );
   const eventService = new EventService(
     googleCalendarClient,
     calendarEventMapRepository,
     actionLogRepository,
     config.timezone,
+    reminderService,
   );
   const todayReviewService = new TodayReviewService(
     config,
@@ -85,10 +97,12 @@ async function main() {
     todayReviewService,
     console,
   );
+  const reminderScheduler = startReminderScheduler(discord.client, reminderService, console);
 
   const shutdown = async (signal: string) => {
     console.info(`Received ${signal}, shutting down`);
     digestScheduler.stop();
+    reminderScheduler.stop();
     httpServer.close();
     await discord.client.destroy();
     process.exit(0);

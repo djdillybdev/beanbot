@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, sqliteTable, text, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const appConfig = sqliteTable('app_config', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -28,18 +28,31 @@ export const actionLog = sqliteTable('action_log', {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-export const reminderJobs = sqliteTable('reminder_jobs', {
-  id: text('id').primaryKey(),
-  sourceType: text('source_type').notNull(),
-  sourceId: text('source_id').notNull(),
-  remindAtUtc: text('remind_at_utc').notNull(),
-  channelId: text('channel_id').notNull(),
-  deliveredAtUtc: text('delivered_at_utc'),
-  status: text('status').notNull(),
-  createdAtUtc: text('created_at_utc')
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-});
+export const reminderJobs = sqliteTable(
+  'reminder_jobs',
+  {
+    id: text('id').primaryKey(),
+    sourceType: text('source_type').notNull(),
+    sourceId: text('source_id').notNull(),
+    reminderKind: text('reminder_kind').notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    remindAtUtc: text('remind_at_utc').notNull(),
+    channelId: text('channel_id').notNull(),
+    payloadJson: text('payload_json').notNull(),
+    deliveredAtUtc: text('delivered_at_utc'),
+    status: text('status').notNull(),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAtUtc: text('updated_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    dedupeKeyIdx: uniqueIndex('reminder_jobs_dedupe_key_idx').on(table.dedupeKey),
+    dueStatusIdx: index('reminder_jobs_status_remind_at_idx').on(table.status, table.remindAtUtc),
+  }),
+);
 
 export const oauthTokens = sqliteTable('oauth_tokens', {
   provider: text('provider').primaryKey(),
@@ -65,6 +78,7 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
   lastSeenProjectName: text('last_seen_project_name'),
   lastSeenDueLabel: text('last_seen_due_label'),
   lastSeenDueDate: text('last_seen_due_date'),
+  lastSeenDueDatetimeUtc: text('last_seen_due_datetime_utc'),
   lastSeenDueString: text('last_seen_due_string'),
   lastSeenLabelsCsv: text('last_seen_labels_csv'),
   lastSeenUrl: text('last_seen_url').notNull(),

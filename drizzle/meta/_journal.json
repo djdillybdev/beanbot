@@ -43,6 +43,13 @@
       "when": 1775088000000,
       "tag": "0005_calendar_event_map",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775174400000,
+      "tag": "0006_reminder_jobs_and_task_due_datetime",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import type { DailyTaskSummary } from '../../domain/daily-review';
+import type { ReminderService } from '../reminders/reminder-service';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import type {
@@ -20,6 +21,7 @@ export class TaskService {
     private readonly todoistClient: TodoistClient,
     private readonly taskMapRepository: TodoistTaskMapRepository,
     private readonly actionLogRepository: ActionLogRepository,
+    private readonly reminderService?: ReminderService,
   ) {}
 
   async addTask(input: TaskCreateInput): Promise<TaskCommandResult> {
@@ -31,6 +33,7 @@ export class TaskService {
       payloadJson: JSON.stringify(input),
       resultJson: JSON.stringify(task),
     });
+    await this.reminderService?.syncTask(task);
 
     return { task };
   }
@@ -51,6 +54,7 @@ export class TaskService {
         payloadJson: JSON.stringify({ query, taskId: taskById.id, resolver: 'autocomplete-id' }),
         resultJson: JSON.stringify(taskById),
       });
+      await this.reminderService?.cancelTaskReminders(taskById.id);
 
       return {
         status: 'completed',
@@ -100,6 +104,7 @@ export class TaskService {
       payloadJson: JSON.stringify({ query, taskId: task.id, resolver: 'title-fallback' }),
       resultJson: JSON.stringify(task),
     });
+    await this.reminderService?.cancelTaskReminders(task.id);
 
     return {
       status: 'completed',
@@ -213,6 +218,7 @@ export class TaskService {
       payloadJson: JSON.stringify({ taskId, input }),
       resultJson: JSON.stringify(task),
     });
+    await this.reminderService?.syncTask(task);
 
     return task;
   }
@@ -232,6 +238,7 @@ export class TaskService {
       payloadJson: JSON.stringify({ taskId }),
       resultJson: JSON.stringify(task),
     });
+    await this.reminderService?.cancelTaskReminders(taskId);
 
     return { ...task, taskStatus: 'deleted' };
   }
@@ -252,6 +259,7 @@ export class TaskService {
       payloadJson: JSON.stringify({ taskId }),
       resultJson: JSON.stringify(reopenedTask),
     });
+    await this.reminderService?.syncTask(reopenedTask);
 
     return reopenedTask;
   }
@@ -273,6 +281,7 @@ export class TaskService {
         projectName: task.projectName,
         dueLabel: task.dueLabel,
         dueDate: task.dateKey,
+        dueDateTimeUtc: undefined,
         url: task.url,
         taskStatus: 'active',
       });

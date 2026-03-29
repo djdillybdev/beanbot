@@ -9,6 +9,7 @@ export interface TodoistTaskRecord {
   projectName?: string;
   dueLabel?: string;
   dueDate?: string;
+  dueDateTimeUtc?: string;
   dueString?: string;
   labels?: string[];
   url: string;

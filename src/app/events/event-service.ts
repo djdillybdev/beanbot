@@ -1,3 +1,4 @@
+import type { ReminderService } from '../reminders/reminder-service';
 import { buildEventAutocompleteLabel } from '../../bot/renderers/event-autocomplete';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { CalendarEventMapRepository } from '../../db/calendar-event-map-repository';
@@ -20,6 +21,7 @@ export class EventService {
     private readonly eventMapRepository: CalendarEventMapRepository,
     private readonly actionLogRepository: ActionLogRepository,
     private readonly timezone: string,
+    private readonly reminderService?: ReminderService,
   ) {}
 
   async addEvent(input: EventCreateInput): Promise<GoogleCalendarEventRecord> {
@@ -32,6 +34,7 @@ export class EventService {
       payloadJson: JSON.stringify(input),
       resultJson: JSON.stringify(event),
     });
+    await this.reminderService?.syncEvent(event);
 
     return event;
   }
@@ -119,6 +122,7 @@ export class EventService {
       payloadJson: JSON.stringify({ eventId, input }),
       resultJson: JSON.stringify(event),
     });
+    await this.reminderService?.syncEvent(event);
 
     return event;
   }
@@ -142,6 +146,7 @@ export class EventService {
       payloadJson: JSON.stringify({ eventId }),
       resultJson: JSON.stringify(event),
     });
+    await this.reminderService?.cancelEventReminders(eventId);
 
     return { ...event, eventStatus: 'deleted' };
   }
