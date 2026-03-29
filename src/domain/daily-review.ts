@@ -3,6 +3,8 @@ export interface DailyTaskSummary {
   title: string;
   priority: number;
   dateKey: string;
+  projectId?: string;
+  projectName?: string;
   dueLabel: string;
   dueSortKey: string;
   url: string;

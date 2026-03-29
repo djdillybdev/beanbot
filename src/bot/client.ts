@@ -5,11 +5,13 @@ import {
   GatewayIntentBits,
   MessageFlags,
   type Interaction,
+  type ModalSubmitInteraction,
 } from 'discord.js';
 
 import {
   handleAutocompleteInteraction,
   handleChatInputCommand,
+  handleModalSubmitInteraction,
   type CommandDependencies,
 } from './handlers';
 
@@ -29,6 +31,11 @@ export function createDiscordClient(
     try {
       if (interaction.isAutocomplete()) {
         await handleAutocompleteInteraction(interaction as AutocompleteInteraction, dependencies);
+        return;
+      }
+
+      if (interaction.isModalSubmit()) {
+        await handleModalSubmitInteraction(interaction as ModalSubmitInteraction, dependencies);
         return;
       }
 

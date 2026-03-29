@@ -1,18 +1,22 @@
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, or } from 'drizzle-orm';
 
 import type { Database } from './types';
 import { todoistTaskMap } from './schema';
-import type { TodoistTaskRecord } from '../domain/task';
+import type { TaskStatus, TodoistTaskRecord } from '../domain/task';
 
 interface TodoistTaskMapRowInput {
   id: string;
   title: string;
   normalizedTitle: string;
   priority: number;
+  projectId?: string;
+  projectName?: string;
   dueLabel?: string;
   dueDate?: string;
+  dueString?: string;
+  labels?: string[];
   url: string;
-  isActive: boolean;
+  taskStatus: TaskStatus;
 }
 
 export class TodoistTaskMapRepository {
@@ -27,10 +31,16 @@ export class TodoistTaskMapRepository {
         todoistTaskId: task.id,
         normalizedTitle: task.normalizedTitle,
         lastSeenContent: task.title,
+        lastSeenPriority: task.priority,
+        lastSeenProjectId: task.projectId ?? null,
+        lastSeenProjectName: task.projectName ?? null,
         lastSeenDueLabel: task.dueLabel ?? null,
         lastSeenDueDate: task.dueDate ?? null,
+        lastSeenDueString: task.dueString ?? null,
+        lastSeenLabelsCsv: serializeLabels(task.labels),
         lastSeenUrl: task.url,
-        isActive: task.isActive,
+        taskStatus: task.taskStatus,
+        isActive: task.taskStatus === 'active',
         updatedAtUtc: now,
       })
       .onConflictDoUpdate({
@@ -38,20 +48,27 @@ export class TodoistTaskMapRepository {
         set: {
           normalizedTitle: task.normalizedTitle,
           lastSeenContent: task.title,
+          lastSeenPriority: task.priority,
+          lastSeenProjectId: task.projectId ?? null,
+          lastSeenProjectName: task.projectName ?? null,
           lastSeenDueLabel: task.dueLabel ?? null,
           lastSeenDueDate: task.dueDate ?? null,
+          lastSeenDueString: task.dueString ?? null,
+          lastSeenLabelsCsv: serializeLabels(task.labels),
           lastSeenUrl: task.url,
-          isActive: task.isActive,
+          taskStatus: task.taskStatus,
+          isActive: task.taskStatus === 'active',
           updatedAtUtc: now,
         },
       });
   }
 
-  async markCompleted(taskId: string) {
+  async updateStatus(taskId: string, taskStatus: TaskStatus) {
     await this.db
       .update(todoistTaskMap)
       .set({
-        isActive: false,
+        taskStatus,
+        isActive: taskStatus === 'active',
         updatedAtUtc: new Date().toISOString(),
       })
       .where(eq(todoistTaskMap.todoistTaskId, taskId));
@@ -61,77 +78,73 @@ export class TodoistTaskMapRepository {
     const rows = await this.db.query.todoistTaskMap.findMany({
       where: and(
         eq(todoistTaskMap.normalizedTitle, normalizedTitle),
-        eq(todoistTaskMap.isActive, true),
+        eq(todoistTaskMap.taskStatus, 'active'),
       ),
       orderBy: [desc(todoistTaskMap.updatedAtUtc)],
       limit: 10,
     });
 
-    return rows.map((row) => ({
-      id: row.todoistTaskId,
-      title: row.lastSeenContent,
-      normalizedTitle: row.normalizedTitle,
-      priority: 0,
-      dueLabel: row.lastSeenDueLabel ?? undefined,
-      dueDate: row.lastSeenDueDate ?? undefined,
-      url: row.lastSeenUrl,
-      isActive: row.isActive,
-    }));
+    return rows.map(mapRowToTaskRecord);
   }
 
-  async getAutocompleteSuggestions(normalizedQuery: string): Promise<TodoistTaskRecord[]> {
+  async getAutocompleteCandidates(
+    normalizedQuery: string,
+    statuses: TaskStatus[],
+  ): Promise<TodoistTaskRecord[]> {
     const query = normalizedQuery.trim();
 
     const rows = await this.db.query.todoistTaskMap.findMany({
       where:
         query.length === 0
-          ? eq(todoistTaskMap.isActive, true)
+          ? inArray(todoistTaskMap.taskStatus, statuses)
           : and(
-              eq(todoistTaskMap.isActive, true),
+              inArray(todoistTaskMap.taskStatus, statuses),
               or(
                 like(todoistTaskMap.normalizedTitle, `${escapeLike(query)}%`),
                 like(todoistTaskMap.normalizedTitle, `%${escapeLike(query)}%`),
               ),
             ),
-      orderBy: [
-        sql`CASE WHEN ${todoistTaskMap.normalizedTitle} LIKE ${`${escapeLike(query)}%`} ESCAPE '\\' THEN 0 ELSE 1 END`,
-        desc(todoistTaskMap.updatedAtUtc),
-      ],
-      limit: 25,
+      orderBy: [desc(todoistTaskMap.updatedAtUtc)],
+      limit: 50,
     });
 
-    return rows.map((row) => ({
-      id: row.todoistTaskId,
-      title: row.lastSeenContent,
-      normalizedTitle: row.normalizedTitle,
-      priority: 0,
-      dueLabel: row.lastSeenDueLabel ?? undefined,
-      dueDate: row.lastSeenDueDate ?? undefined,
-      url: row.lastSeenUrl,
-      isActive: row.isActive,
-    }));
+    return rows.map(mapRowToTaskRecord);
   }
 
-  async findActiveById(taskId: string): Promise<TodoistTaskRecord | null> {
+  async findById(taskId: string, statuses?: TaskStatus[]): Promise<TodoistTaskRecord | null> {
     const row = await this.db.query.todoistTaskMap.findFirst({
-      where: and(eq(todoistTaskMap.todoistTaskId, taskId), eq(todoistTaskMap.isActive, true)),
+      where: statuses
+        ? and(eq(todoistTaskMap.todoistTaskId, taskId), inArray(todoistTaskMap.taskStatus, statuses))
+        : eq(todoistTaskMap.todoistTaskId, taskId),
     });
 
-    if (!row) {
-      return null;
-    }
-
-    return {
-      id: row.todoistTaskId,
-      title: row.lastSeenContent,
-      normalizedTitle: row.normalizedTitle,
-      priority: 0,
-      dueLabel: row.lastSeenDueLabel ?? undefined,
-      dueDate: row.lastSeenDueDate ?? undefined,
-      url: row.lastSeenUrl,
-      isActive: row.isActive,
-    };
+    return row ? mapRowToTaskRecord(row) : null;
   }
+}
+
+function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTaskRecord {
+  return {
+    id: row.todoistTaskId,
+    title: row.lastSeenContent,
+    normalizedTitle: row.normalizedTitle,
+    priority: row.lastSeenPriority,
+    projectId: row.lastSeenProjectId ?? undefined,
+    projectName: row.lastSeenProjectName ?? undefined,
+    dueLabel: row.lastSeenDueLabel ?? undefined,
+    dueDate: row.lastSeenDueDate ?? undefined,
+    dueString: row.lastSeenDueString ?? undefined,
+    labels: deserializeLabels(row.lastSeenLabelsCsv),
+    url: row.lastSeenUrl,
+    taskStatus: row.taskStatus as TaskStatus,
+  };
+}
+
+function serializeLabels(labels?: string[]) {
+  return labels && labels.length > 0 ? labels.join(',') : null;
+}
+
+function deserializeLabels(labelsCsv?: string | null) {
+  return labelsCsv ? labelsCsv.split(',').filter((label) => label.length > 0) : undefined;
 }
 
 function escapeLike(value: string) {

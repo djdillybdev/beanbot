@@ -2,9 +2,13 @@ import type { DailyTaskSummary } from '../../domain/daily-review';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import type {
+  ProjectAutocompleteSuggestion,
   TaskAutocompleteSuggestion,
   TaskCommandResult,
   TaskCompletionResolution,
+  TaskCreateInput,
+  TaskEditInput,
+  TodoistProjectRecord,
   TodoistTaskRecord,
 } from '../../domain/task';
 import { TodoistClient } from '../../integrations/todoist/client';
@@ -18,13 +22,13 @@ export class TaskService {
     private readonly actionLogRepository: ActionLogRepository,
   ) {}
 
-  async addTask(content: string): Promise<TaskCommandResult> {
-    const task = await this.todoistClient.quickAddTask(content);
+  async addTask(input: TaskCreateInput): Promise<TaskCommandResult> {
+    const task = await this.todoistClient.createTask(input);
     await this.taskMapRepository.upsert(task);
     await this.actionLogRepository.insert({
       actionType: 'task.add',
       sourceCommand: '/task add',
-      payloadJson: JSON.stringify({ content }),
+      payloadJson: JSON.stringify(input),
       resultJson: JSON.stringify(task),
     });
 
@@ -36,11 +40,11 @@ export class TaskService {
     | { status: 'no_match'; resolution: TaskCompletionResolution }
     | { status: 'ambiguous'; resolution: TaskCompletionResolution }
   > {
-    const taskById = await this.taskMapRepository.findActiveById(query);
+    const taskById = await this.taskMapRepository.findById(query, ['active']);
 
     if (taskById) {
       await this.todoistClient.closeTask(taskById.id);
-      await this.taskMapRepository.markCompleted(taskById.id);
+      await this.taskMapRepository.updateStatus(taskById.id, 'completed');
       await this.actionLogRepository.insert({
         actionType: 'task.done',
         sourceCommand: '/task done',
@@ -50,7 +54,7 @@ export class TaskService {
 
       return {
         status: 'completed',
-        task: taskById,
+        task: { ...taskById, taskStatus: 'completed' },
       };
     }
 
@@ -89,18 +93,167 @@ export class TaskService {
     }
 
     await this.todoistClient.closeTask(task.id);
-    await this.taskMapRepository.markCompleted(task.id);
+    await this.taskMapRepository.updateStatus(task.id, 'completed');
     await this.actionLogRepository.insert({
       actionType: 'task.done',
       sourceCommand: '/task done',
-      payloadJson: JSON.stringify({ query, taskId: task.id }),
+      payloadJson: JSON.stringify({ query, taskId: task.id, resolver: 'title-fallback' }),
       resultJson: JSON.stringify(task),
     });
 
     return {
       status: 'completed',
-      task,
+      task: { ...task, taskStatus: 'completed' },
     };
+  }
+
+  async getTaskForEdit(taskId: string): Promise<TodoistTaskRecord | null> {
+    const cachedTask = await this.taskMapRepository.findById(taskId, ['active']);
+
+    if (!cachedTask) {
+      return null;
+    }
+
+    try {
+      const freshTask = await this.todoistClient.getTask(taskId);
+      await this.taskMapRepository.upsert(freshTask);
+      return freshTask;
+    } catch {
+      return cachedTask;
+    }
+  }
+
+  async editTask(taskId: string, input: TaskEditInput): Promise<TodoistTaskRecord> {
+    const existingTask = await this.taskMapRepository.findById(taskId, ['active']);
+
+    if (!existingTask) {
+      throw new Error('That task is no longer available in the recent active cache.');
+    }
+
+    const content = input.content?.trim() ?? '';
+    if (content.length === 0) {
+      throw new Error('Task title cannot be blank. Provide a title in the modal before saving.');
+    }
+
+    const dueString = input.dueString?.trim() ?? '';
+    const projectName = input.projectName?.trim() ?? '';
+    const nextLabels = input.labels ?? [];
+    const currentLabels = existingTask.labels ?? [];
+
+    const patch: {
+      content?: string;
+      due_string?: string | null;
+      labels?: string[];
+      priority?: 1 | 2 | 3 | 4;
+    } = {};
+
+    if (content !== existingTask.title) {
+      patch.content = content;
+    }
+
+    if (dueString !== (existingTask.dueString ?? '')) {
+      patch.due_string = dueString.length > 0 ? dueString : null;
+    }
+
+    if (!sameLabels(currentLabels, nextLabels)) {
+      patch.labels = nextLabels;
+    }
+
+    if (input.priority && input.priority !== existingTask.priority) {
+      patch.priority = input.priority;
+    } else if (!input.priority && existingTask.priority !== 1) {
+      patch.priority = 1;
+    }
+
+    let projectIdToMove: string | undefined;
+
+    if (projectName !== (existingTask.projectName ?? '')) {
+      if (projectName.length === 0) {
+        const inboxProject = await this.getInboxProject();
+        projectIdToMove = inboxProject.id;
+      } else {
+        const matchingProjects = await this.findProjectsByExactName(projectName);
+
+        if (matchingProjects.length === 0) {
+          throw new Error(`No Todoist project matched "${projectName}". Use the exact project name.`);
+        }
+
+        if (matchingProjects.length > 1) {
+          throw new Error(`Multiple Todoist projects matched "${projectName}". Use a unique project name.`);
+        }
+
+        const project = matchingProjects[0];
+
+        if (project && project.id !== existingTask.projectId) {
+          projectIdToMove = project.id;
+        }
+      }
+    }
+
+    const hasPatchChanges = Object.keys(patch).length > 0;
+    const hasMove = Boolean(projectIdToMove);
+
+    if (!hasPatchChanges && !hasMove) {
+      return existingTask;
+    }
+
+    if (hasPatchChanges) {
+      await this.todoistClient.updateTask(taskId, patch);
+    }
+
+    if (projectIdToMove) {
+      await this.todoistClient.moveTaskToProject(taskId, projectIdToMove);
+    }
+
+    const task = await this.todoistClient.getTask(taskId);
+    await this.taskMapRepository.upsert(task);
+    await this.actionLogRepository.insert({
+      actionType: 'task.edit',
+      sourceCommand: '/task edit',
+      payloadJson: JSON.stringify({ taskId, input }),
+      resultJson: JSON.stringify(task),
+    });
+
+    return task;
+  }
+
+  async deleteTask(taskId: string): Promise<TodoistTaskRecord> {
+    const task = await this.taskMapRepository.findById(taskId, ['active']);
+
+    if (!task) {
+      throw new Error('That task is no longer available in the recent active cache.');
+    }
+
+    await this.todoistClient.deleteTask(taskId);
+    await this.taskMapRepository.updateStatus(taskId, 'deleted');
+    await this.actionLogRepository.insert({
+      actionType: 'task.delete',
+      sourceCommand: '/task delete',
+      payloadJson: JSON.stringify({ taskId }),
+      resultJson: JSON.stringify(task),
+    });
+
+    return { ...task, taskStatus: 'deleted' };
+  }
+
+  async reopenTask(taskId: string): Promise<TodoistTaskRecord> {
+    const task = await this.taskMapRepository.findById(taskId, ['completed']);
+
+    if (!task) {
+      throw new Error('That task is not available in the recent completed cache.');
+    }
+
+    await this.todoistClient.reopenTask(taskId);
+    const reopenedTask = await this.todoistClient.getTask(taskId);
+    await this.taskMapRepository.upsert(reopenedTask);
+    await this.actionLogRepository.insert({
+      actionType: 'task.reopen',
+      sourceCommand: '/task reopen',
+      payloadJson: JSON.stringify({ taskId }),
+      resultJson: JSON.stringify(reopenedTask),
+    });
+
+    return reopenedTask;
   }
 
   async rememberTasks(tasks: TodoistTaskRecord[]) {
@@ -116,21 +269,139 @@ export class TaskService {
         title: task.title,
         normalizedTitle: normalizeTaskTitle(task.title),
         priority: task.priority,
+        projectId: task.projectId,
+        projectName: task.projectName,
         dueLabel: task.dueLabel,
         dueDate: task.dateKey,
         url: task.url,
-        isActive: true,
+        taskStatus: 'active',
       });
     }
   }
 
   async getTaskDoneAutocompleteSuggestions(query: string): Promise<TaskAutocompleteSuggestion[]> {
-    const normalizedQuery = normalizeTaskTitle(query);
-    const tasks = await this.taskMapRepository.getAutocompleteSuggestions(normalizedQuery);
+    return this.getTaskAutocompleteSuggestions(query, ['active']);
+  }
 
-    return tasks.map((task) => ({
+  async getTaskReopenAutocompleteSuggestions(query: string): Promise<TaskAutocompleteSuggestion[]> {
+    return this.getTaskAutocompleteSuggestions(query, ['completed']);
+  }
+
+  async getProjectAutocompleteSuggestions(query: string): Promise<ProjectAutocompleteSuggestion[]> {
+    const projects = await this.todoistClient.getProjects();
+    const normalizedQuery = normalizeTaskTitle(query);
+
+    return rankProjects(projects, normalizedQuery).slice(0, 25).map((project) => ({
+      name: project.name,
+      value: project.id,
+    }));
+  }
+
+  async validateProjectSelection(projectValue: string): Promise<TodoistProjectRecord | null> {
+    const projects = await this.todoistClient.getProjects();
+    return projects.find((project) => project.id === projectValue) ?? null;
+  }
+
+  private async getTaskAutocompleteSuggestions(
+    query: string,
+    statuses: Array<'active' | 'completed'>,
+  ): Promise<TaskAutocompleteSuggestion[]> {
+    const normalizedQuery = normalizeTaskTitle(query);
+    const tasks = await this.taskMapRepository.getAutocompleteCandidates(normalizedQuery, statuses);
+
+    return rankAutocompleteTasks(tasks, normalizedQuery).slice(0, 25).map((task) => ({
       name: buildTaskAutocompleteLabel(task),
       value: task.id,
     }));
   }
+
+  private async findProjectsByExactName(projectName: string): Promise<TodoistProjectRecord[]> {
+    const normalizedName = normalizeTaskTitle(projectName);
+    const projects = await this.todoistClient.getProjects();
+
+    return projects.filter((project) => normalizeTaskTitle(project.name) === normalizedName);
+  }
+
+  private async getInboxProject(): Promise<TodoistProjectRecord> {
+    const projects = await this.todoistClient.getProjects();
+    const inboxProject = projects.find((project) => project.isInboxProject);
+
+    if (!inboxProject) {
+      throw new Error('Todoist Inbox project was not found, so the project field cannot be cleared safely.');
+    }
+
+    return inboxProject;
+  }
+}
+
+function rankAutocompleteTasks(tasks: TodoistTaskRecord[], normalizedQuery: string) {
+  const query = normalizedQuery.trim();
+
+  return [...tasks].sort((left, right) => {
+    const leftRank = getAutocompleteRank(left.normalizedTitle, query);
+    const rightRank = getAutocompleteRank(right.normalizedTitle, query);
+
+    return (
+      leftRank - rightRank ||
+      compareProjectName(left.projectName, right.projectName) ||
+      left.title.localeCompare(right.title)
+    );
+  });
+}
+
+function getAutocompleteRank(title: string, query: string) {
+  if (query.length === 0) {
+    return 3;
+  }
+
+  if (title === query) {
+    return 0;
+  }
+
+  if (title.startsWith(query)) {
+    return 1;
+  }
+
+  if (title.includes(query)) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function compareProjectName(left?: string, right?: string) {
+  if (left && right) {
+    return left.localeCompare(right);
+  }
+
+  if (left) {
+    return -1;
+  }
+
+  if (right) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function rankProjects(projects: TodoistProjectRecord[], normalizedQuery: string) {
+  const query = normalizedQuery.trim();
+
+  return [...projects].sort((left, right) => {
+    const leftTitle = normalizeTaskTitle(left.name);
+    const rightTitle = normalizeTaskTitle(right.name);
+    const leftRank = getAutocompleteRank(leftTitle, query);
+    const rightRank = getAutocompleteRank(rightTitle, query);
+
+    return leftRank - rightRank || left.name.localeCompare(right.name);
+  });
+}
+
+function sameLabels(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((label, index) => label === right[index]);
 }

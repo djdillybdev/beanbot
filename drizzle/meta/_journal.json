@@ -22,6 +22,20 @@
       "when": 1774828800000,
       "tag": "0002_todoist_task_map",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774915200000,
+      "tag": "0003_todoist_task_project_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775001600000,
+      "tag": "0004_todoist_task_status_and_fields",
+      "breakpoints": true
     }
   ]
 }

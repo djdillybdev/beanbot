@@ -1,22 +1,42 @@
 import type { AppConfig } from '../../config';
 import type { DailyTaskSummary } from '../../domain/daily-review';
-import type { TodoistTaskRecord } from '../../domain/task';
+import type {
+  TaskCreateInput,
+  TodoistProjectRecord,
+  TodoistTaskRecord,
+} from '../../domain/task';
 import type { StoredOAuthToken } from '../../domain/oauth';
 import { getLocalDateParts, formatLocalTime } from '../../utils/time';
 import { OAuthTokenRepository } from '../../db/oauth-token-repository';
 import { normalizeTaskTitle } from '../../utils/text';
 
 const TODOIST_API_BASE_URL = 'https://api.todoist.com/api/v1';
+
 interface TodoistTaskResponse {
   id: string;
   content: string;
   priority: number;
+  project_id?: string | null;
+  labels?: string[] | null;
   url?: string;
   due?: {
     date?: string;
     datetime?: string;
     string?: string;
   } | null;
+}
+
+interface TodoistProjectResponse {
+  id: string;
+  name: string;
+  is_inbox_project?: boolean;
+}
+
+interface TodoistTaskUpdatePayload {
+  content?: string;
+  labels?: string[];
+  priority?: 1 | 2 | 3 | 4;
+  due_string?: string | null;
 }
 
 export class TodoistClient {
@@ -28,7 +48,7 @@ export class TodoistClient {
   isConfigured(): boolean {
     return Boolean(
       this.config.env.OAUTH_STATE_SECRET &&
-      this.config.env.TODOIST_CLIENT_ID &&
+        this.config.env.TODOIST_CLIENT_ID &&
         this.config.env.TODOIST_CLIENT_SECRET &&
         this.config.env.TODOIST_REDIRECT_URI,
     );
@@ -43,10 +63,12 @@ export class TodoistClient {
   }
 
   async getTasksForUpcomingDays(
-  days: number,
+    days: number,
   ): Promise<{ overdueTasks: DailyTaskSummary[]; dueTodayTasks: DailyTaskSummary[] }> {
     const token = await this.requireToken();
     const tasks = await this.fetchFilteredTasks(token, buildTodoistDateFilter(days));
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
     const today = getLocalDateParts(new Date(), this.config.timezone).date;
     const endExclusive = addDays(today, days);
 
@@ -65,6 +87,8 @@ export class TodoistClient {
         title: task.content,
         priority: task.priority,
         dateKey: classification.dateKey,
+        projectId: task.project_id ?? undefined,
+        projectName: task.project_id ? projectNames.get(task.project_id) : undefined,
         dueLabel: classification.label,
         dueSortKey: classification.sortKey,
         url: `https://app.todoist.com/app/task/${task.id}`,
@@ -86,25 +110,53 @@ export class TodoistClient {
   async getTaskRecordsForUpcomingDays(days: number): Promise<TodoistTaskRecord[]> {
     const token = await this.requireToken();
     const tasks = await this.fetchFilteredTasks(token, buildTodoistDateFilter(days));
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
     const today = getLocalDateParts(new Date(), this.config.timezone).date;
     const endExclusive = addDays(today, days);
 
     return tasks
-      .map((task) => mapTaskRecord(task, today, endExclusive, this.config.timezone))
+      .map((task) =>
+        mapTaskRecord(
+          task,
+          today,
+          endExclusive,
+          this.config.timezone,
+          task.project_id ? projectNames.get(task.project_id) : undefined,
+        ),
+      )
       .filter((task): task is TodoistTaskRecord => task !== null);
   }
 
-  async quickAddTask(content: string): Promise<TodoistTaskRecord> {
+  async createTask(input: TaskCreateInput): Promise<TodoistTaskRecord> {
     const token = await this.requireToken();
+    const payload: Record<string, unknown> = {
+      content: input.content,
+    };
+
+    if (input.priority) {
+      payload.priority = input.priority;
+    }
+
+    if (input.projectId) {
+      payload.project_id = input.projectId;
+    }
+
+    if (input.labels) {
+      payload.labels = input.labels;
+    }
+
+    if (input.due) {
+      payload.due_string = input.due;
+    }
+
     const response = await fetch(`${TODOIST_API_BASE_URL}/tasks`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token.accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        content,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -113,8 +165,92 @@ export class TodoistClient {
     }
 
     const task = (await response.json()) as TodoistTaskResponse;
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
-    return mapQuickAddedTaskRecord(task, this.config.timezone);
+    return mapActiveTaskRecord(
+      task,
+      this.config.timezone,
+      task.project_id ? projectNames.get(task.project_id) : undefined,
+    );
+  }
+
+  async getTask(taskId: string): Promise<TodoistTaskRecord> {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}`, {
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist get task failed: ${response.status} ${text}`);
+    }
+
+    const task = (await response.json()) as TodoistTaskResponse;
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return mapActiveTaskRecord(
+      task,
+      this.config.timezone,
+      task.project_id ? projectNames.get(task.project_id) : undefined,
+    );
+  }
+
+  async updateTask(taskId: string, patch: TodoistTaskUpdatePayload): Promise<TodoistTaskRecord> {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(patch),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist update task failed: ${response.status} ${text}`);
+    }
+
+    const task = (await response.json()) as TodoistTaskResponse;
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return mapActiveTaskRecord(
+      task,
+      this.config.timezone,
+      task.project_id ? projectNames.get(task.project_id) : undefined,
+    );
+  }
+
+  async moveTaskToProject(taskId: string, projectId: string): Promise<TodoistTaskRecord> {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}/move`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist move task failed: ${response.status} ${text}`);
+    }
+
+    const task = (await response.json()) as TodoistTaskResponse;
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return mapActiveTaskRecord(
+      task,
+      this.config.timezone,
+      task.project_id ? projectNames.get(task.project_id) : undefined,
+    );
   }
 
   async closeTask(taskId: string) {
@@ -130,6 +266,49 @@ export class TodoistClient {
       const text = await response.text();
       throw new Error(`Todoist close task failed: ${response.status} ${text}`);
     }
+  }
+
+  async reopenTask(taskId: string) {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}/reopen`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist reopen task failed: ${response.status} ${text}`);
+    }
+  }
+
+  async deleteTask(taskId: string) {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/${taskId}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist delete task failed: ${response.status} ${text}`);
+    }
+  }
+
+  async getProjects(): Promise<TodoistProjectRecord[]> {
+    const token = await this.requireToken();
+    const projects = await this.fetchProjects(token);
+
+    return projects
+      .map((project) => ({
+        id: project.id,
+        name: project.name,
+        isInboxProject: project.is_inbox_project ?? false,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
   }
 
   private async requireToken(): Promise<StoredOAuthToken> {
@@ -175,6 +354,40 @@ export class TodoistClient {
     } while (cursor);
 
     return results;
+  }
+
+  private async fetchProjects(token: StoredOAuthToken) {
+    const projects: TodoistProjectResponse[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const url = new URL(`${TODOIST_API_BASE_URL}/projects`);
+      url.searchParams.set('limit', '200');
+      if (cursor) {
+        url.searchParams.set('cursor', cursor);
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Todoist projects fetch failed: ${response.status} ${text}`);
+      }
+
+      const payload = (await response.json()) as {
+        results: TodoistProjectResponse[];
+        next_cursor?: string | null;
+      };
+
+      projects.push(...payload.results);
+      cursor = payload.next_cursor ?? null;
+    } while (cursor);
+
+    return projects;
   }
 }
 
@@ -260,6 +473,7 @@ function mapTaskRecord(
   todayDate: string,
   endExclusiveDate: string,
   timezone: string,
+  projectName?: string,
 ): TodoistTaskRecord | null {
   const classification = classifyTodoistTask(task, todayDate, endExclusiveDate, timezone);
 
@@ -272,16 +486,21 @@ function mapTaskRecord(
     title: task.content,
     normalizedTitle: normalizeTaskTitle(task.content),
     priority: task.priority,
+    projectId: task.project_id ?? undefined,
+    projectName,
     dueLabel: classification.label,
     dueDate: classification.dateKey,
+    dueString: task.due?.string ?? undefined,
+    labels: task.labels ?? undefined,
     url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
-    isActive: true,
+    taskStatus: 'active',
   };
 }
 
-function mapQuickAddedTaskRecord(
+function mapActiveTaskRecord(
   task: TodoistTaskResponse,
   timezone: string,
+  projectName?: string,
 ): TodoistTaskRecord {
   const dueLabel = task.due?.datetime
     ? `Due at ${formatLocalTime(new Date(task.due.datetime), timezone)}`
@@ -298,10 +517,14 @@ function mapQuickAddedTaskRecord(
     title: task.content,
     normalizedTitle: normalizeTaskTitle(task.content),
     priority: task.priority,
+    projectId: task.project_id ?? undefined,
+    projectName,
     dueLabel,
     dueDate,
+    dueString: task.due?.string ?? undefined,
+    labels: task.labels ?? undefined,
     url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
-    isActive: true,
+    taskStatus: 'active',
   };
 }
 

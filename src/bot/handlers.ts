@@ -1,8 +1,13 @@
 import {
+  ActionRowBuilder,
   type AutocompleteInteraction,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
   type ChatInputCommandInteraction,
+  type ModalSubmitInteraction,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 
 import { TodayReviewService } from '../app/today/get-today-review';
@@ -10,7 +15,16 @@ import { TaskService } from '../app/tasks/task-service';
 import { buildTodayEmbeds } from './renderers/today';
 import type { AppConfig } from '../config';
 import type { DailyEventSummary, DailyTaskSummary, PeriodReviewResult } from '../domain/daily-review';
-import { buildTaskAddSuccessEmbed, buildTaskDoneSuccessEmbed, buildTaskResolutionMessage } from './renderers/task';
+import {
+  buildTaskAddSuccessEmbed,
+  buildTaskDeleteSuccessEmbed,
+  buildTaskDoneSuccessEmbed,
+  buildTaskEditSuccessEmbed,
+  buildTaskReopenSuccessEmbed,
+  buildTaskResolutionMessage,
+} from './renderers/task';
+
+const TASK_EDIT_MODAL_PREFIX = 'task-edit:';
 
 export interface CommandDependencies {
   config: AppConfig;
@@ -41,7 +55,10 @@ export async function handleChatInputCommand(
         '`/week` shows overdue work and the next 7 days.',
         '`/month` shows overdue work and the next 31 days.',
         '`/task add` creates a Todoist task.',
-        '`/task done` completes a recently seen task by exact title.',
+        '`/task done` completes a recently seen active task.',
+        '`/task edit` opens a prefilled edit modal for a recent active task.',
+        '`/task delete` deletes a recent active task.',
+        '`/task reopen` reopens a recently completed task.',
         '',
         'Connect providers:',
         `- Todoist: ${dependencies.config.publicBaseUrl}/auth/todoist/start`,
@@ -91,7 +108,35 @@ export async function handleChatInputCommand(
 
     if (subcommand === 'add') {
       const content = interaction.options.getString('content', true);
-      const result = await dependencies.taskService.addTask(content);
+      const due = interaction.options.getString('due') ?? undefined;
+      const priority = interaction.options.getInteger('priority') ?? undefined;
+      const projectValue = interaction.options.getString('project') ?? undefined;
+      const labelsRaw = interaction.options.getString('labels') ?? undefined;
+      const labels = parseLabels(labelsRaw);
+
+      let projectId: string | undefined;
+
+      if (projectValue) {
+        const project = await dependencies.taskService.validateProjectSelection(projectValue);
+
+        if (!project) {
+          await interaction.reply({
+            content: 'Select a project from the autocomplete suggestions so the bot can map it to Todoist safely.',
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        projectId = project.id;
+      }
+
+      const result = await dependencies.taskService.addTask({
+        content,
+        due,
+        priority: toPriority(priority),
+        projectId,
+        labels,
+      });
 
       await interaction.reply({
         embeds: [buildTaskAddSuccessEmbed(result.task)],
@@ -118,6 +163,52 @@ export async function handleChatInputCommand(
       });
       return;
     }
+
+    if (subcommand === 'edit') {
+      const taskId = interaction.options.getString('task', true);
+      const task = await dependencies.taskService.getTaskForEdit(taskId);
+
+      if (!task) {
+        await interaction.reply({
+          content: 'Select a recent active task from autocomplete before opening the edit modal.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      await interaction.showModal(buildTaskEditModal(task.id, task));
+      return;
+    }
+
+    if (subcommand === 'delete') {
+      const taskId = interaction.options.getString('task', true);
+      const task = await withTaskCommandError(interaction, () => dependencies.taskService.deleteTask(taskId));
+
+      if (!task) {
+        return;
+      }
+
+      await interaction.reply({
+        embeds: [buildTaskDeleteSuccessEmbed(task)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (subcommand === 'reopen') {
+      const taskId = interaction.options.getString('task', true);
+      const task = await withTaskCommandError(interaction, () => dependencies.taskService.reopenTask(taskId));
+
+      if (!task) {
+        return;
+      }
+
+      await interaction.reply({
+        embeds: [buildTaskReopenSuccessEmbed(task)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
   }
 
   if (!interaction.replied && !interaction.deferred) {
@@ -140,16 +231,194 @@ export async function handleAutocompleteInteraction(
   const subcommand = interaction.options.getSubcommand(false);
   const focused = interaction.options.getFocused(true);
 
-  if (subcommand !== 'done' || focused.name !== 'task') {
+  if (subcommand === 'add' && focused.name === 'project') {
+    const suggestions = await dependencies.taskService.getProjectAutocompleteSuggestions(
+      String(focused.value ?? ''),
+    );
+    await interaction.respond(suggestions);
+    return;
+  }
+
+  if (focused.name !== 'task') {
     await interaction.respond([]);
     return;
   }
 
-  const suggestions = await dependencies.taskService.getTaskDoneAutocompleteSuggestions(
-    String(focused.value ?? ''),
+  if (subcommand === 'done' || subcommand === 'edit' || subcommand === 'delete') {
+    const suggestions = await dependencies.taskService.getTaskDoneAutocompleteSuggestions(
+      String(focused.value ?? ''),
+    );
+    await interaction.respond(suggestions);
+    return;
+  }
+
+  if (subcommand === 'reopen') {
+    const suggestions = await dependencies.taskService.getTaskReopenAutocompleteSuggestions(
+      String(focused.value ?? ''),
+    );
+    await interaction.respond(suggestions);
+    return;
+  }
+
+  await interaction.respond([]);
+}
+
+export async function handleModalSubmitInteraction(
+  interaction: ModalSubmitInteraction,
+  dependencies: CommandDependencies,
+): Promise<void> {
+  if (!interaction.customId.startsWith(TASK_EDIT_MODAL_PREFIX)) {
+    return;
+  }
+
+  const taskId = interaction.customId.slice(TASK_EDIT_MODAL_PREFIX.length);
+  const content = interaction.fields.getTextInputValue('content');
+  const dueString = interaction.fields.getTextInputValue('due');
+  const priorityRaw = interaction.fields.getTextInputValue('priority').trim();
+  const projectName = interaction.fields.getTextInputValue('project');
+  const labelsRaw = interaction.fields.getTextInputValue('labels');
+  const priority = parsePriority(priorityRaw);
+
+  if (priorityRaw.length > 0 && !priority) {
+    await interaction.reply({
+      content: 'Priority must be 1, 2, 3, or 4.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const task = await withTaskCommandError(interaction, () =>
+    dependencies.taskService.editTask(taskId, {
+    content,
+    dueString,
+    priority,
+    projectName,
+    labels: parseLabels(labelsRaw) ?? [],
+    }),
   );
 
-  await interaction.respond(suggestions);
+  if (!task) {
+    return;
+  }
+
+  await interaction.reply({
+    embeds: [buildTaskEditSuccessEmbed(task)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+function toPriority(value: number | null | undefined): 1 | 2 | 3 | 4 | undefined {
+  if (value === 1 || value === 2 || value === 3 || value === 4) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function parsePriority(value: string): 1 | 2 | 3 | 4 | undefined {
+  return toPriority(Number(value));
+}
+
+function parseLabels(labelsRaw: string | null | undefined) {
+  return labelsRaw
+    ? labelsRaw
+        .split(',')
+        .map((label) => label.trim())
+        .filter((label) => label.length > 0)
+    : undefined;
+}
+
+function buildTaskEditModal(taskId: string, task: {
+  title: string;
+  dueString?: string;
+  priority: number;
+  projectName?: string;
+  labels?: string[];
+}) {
+  return new ModalBuilder()
+    .setCustomId(`${TASK_EDIT_MODAL_PREFIX}${taskId}`)
+    .setTitle('Edit Task')
+    .addComponents(
+      buildModalRow(
+        new TextInputBuilder()
+          .setCustomId('content')
+          .setLabel('Title')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setValue(task.title),
+      ),
+      buildModalRow(
+        setOptionalValue(
+          new TextInputBuilder()
+          .setCustomId('due')
+          .setLabel('Due')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false),
+          task.dueString,
+        ),
+      ),
+      buildModalRow(
+        setOptionalValue(
+          new TextInputBuilder()
+          .setCustomId('priority')
+          .setLabel('Priority (1-4, blank resets to 1)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false),
+          String(task.priority),
+        ),
+      ),
+      buildModalRow(
+        setOptionalValue(
+          new TextInputBuilder()
+          .setCustomId('project')
+          .setLabel('Project (exact name, blank = Inbox)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false),
+          task.projectName,
+        ),
+      ),
+      buildModalRow(
+        setOptionalValue(
+          new TextInputBuilder()
+          .setCustomId('labels')
+          .setLabel('Labels (comma-separated, blank clears)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false),
+          task.labels?.join(', '),
+        ),
+      ),
+    );
+}
+
+function buildModalRow(input: TextInputBuilder) {
+  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+}
+
+function setOptionalValue(input: TextInputBuilder, value?: string) {
+  if (value && value.length > 0) {
+    input.setValue(value);
+  }
+
+  return input;
+}
+
+async function withTaskCommandError<T>(
+  interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
+  action: () => Promise<T>,
+) {
+  try {
+    return await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Task command failed.';
+
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
+    } else {
+      await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
+    }
+
+    return null;
+  }
 }
 
 function buildTaskField(

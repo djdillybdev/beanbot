@@ -60,9 +60,15 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
   todoistTaskId: text('todoist_task_id').primaryKey(),
   normalizedTitle: text('normalized_title').notNull(),
   lastSeenContent: text('last_seen_content').notNull(),
+  lastSeenPriority: integer('last_seen_priority').notNull().default(1),
+  lastSeenProjectId: text('last_seen_project_id'),
+  lastSeenProjectName: text('last_seen_project_name'),
   lastSeenDueLabel: text('last_seen_due_label'),
   lastSeenDueDate: text('last_seen_due_date'),
+  lastSeenDueString: text('last_seen_due_string'),
+  lastSeenLabelsCsv: text('last_seen_labels_csv'),
   lastSeenUrl: text('last_seen_url').notNull(),
+  taskStatus: text('task_status').notNull().default('active'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAtUtc: text('created_at_utc')
     .notNull()
