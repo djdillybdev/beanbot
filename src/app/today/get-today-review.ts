@@ -11,6 +11,7 @@ import { EventService } from '../events/event-service';
 import { TaskService } from '../tasks/task-service';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
+import type { Logger } from '../../logging/logger';
 import { formatLocalDayLabel, getDateKeysInRange, getLocalDateParts } from '../../utils/time';
 
 export class TodayReviewService {
@@ -20,16 +21,21 @@ export class TodayReviewService {
     private readonly googleCalendarClient: GoogleCalendarClient,
     private readonly taskService?: TaskService,
     private readonly eventService?: EventService,
+    private readonly logger?: Logger,
   ) {}
 
-  async getReview(): Promise<DailyReviewResult> {
+  async getReview(now = new Date()): Promise<DailyReviewResult> {
+    this.logger?.debug('Building today review');
     const todoistStatus = await this.buildTodoistStatus();
     const googleCalendarStatus = await this.buildGoogleStatus();
 
-    const [taskResult, eventResult] = await Promise.allSettled([
+    const [taskResult, completedTaskResult, eventResult] = await Promise.allSettled([
       todoistStatus.connected
         ? this.todoistClient.getDailyTasks()
         : Promise.resolve({ overdueTasks: [], dueTodayTasks: [] }),
+      todoistStatus.connected
+        ? this.todoistClient.getCompletedTasksForToday(now)
+        : Promise.resolve([]),
       googleCalendarStatus.connected
         ? this.googleCalendarClient.getTodayEvents()
         : Promise.resolve([]),
@@ -40,6 +46,12 @@ export class TodayReviewService {
       todoistStatus.message = taskResult.reason instanceof Error ? taskResult.reason.message : 'Task fetch failed.';
     }
 
+    if (completedTaskResult.status === 'rejected') {
+      todoistStatus.message = completedTaskResult.reason instanceof Error
+        ? completedTaskResult.reason.message
+        : 'Completed task fetch failed.';
+    }
+
     if (eventResult.status === 'rejected') {
       googleCalendarStatus.connected = false;
       googleCalendarStatus.message =
@@ -48,9 +60,11 @@ export class TodayReviewService {
 
     const overdueTasks = taskResult.status === 'fulfilled' ? taskResult.value.overdueTasks : [];
     const dueTodayTasks = taskResult.status === 'fulfilled' ? taskResult.value.dueTodayTasks : [];
+    const completedTodayTasks = completedTaskResult.status === 'fulfilled' ? completedTaskResult.value : [];
     const result = {
       overdueTasks,
       dueTodayTasks,
+      completedTodayTasks,
       todayEvents: eventResult.status === 'fulfilled' ? eventResult.value : [],
       todoistStatus,
       googleCalendarStatus,
@@ -58,6 +72,14 @@ export class TodayReviewService {
 
     await this.refreshTaskCache([...overdueTasks, ...dueTodayTasks], todoistStatus.connected);
     await this.refreshEventCache(1, googleCalendarStatus.connected);
+    this.logger?.info('Built today review', {
+      overdueCount: overdueTasks.length,
+      dueTodayCount: dueTodayTasks.length,
+      completedTodayCount: completedTodayTasks.length,
+      eventCount: result.todayEvents.length,
+      todoistConnected: todoistStatus.connected,
+      googleCalendarConnected: googleCalendarStatus.connected,
+    });
 
     return result;
   }
@@ -71,6 +93,7 @@ export class TodayReviewService {
   }
 
   private async getPeriodReview(days: number): Promise<PeriodReviewResult> {
+    this.logger?.debug('Building period review', { days });
     const todoistStatus = await this.buildTodoistStatus();
     const googleCalendarStatus = await this.buildGoogleStatus();
 
@@ -108,6 +131,14 @@ export class TodayReviewService {
 
     await this.refreshTaskCache([...overdueTasks, ...dueTasks], todoistStatus.connected);
     await this.refreshEventCache(days, googleCalendarStatus.connected);
+    this.logger?.info('Built period review', {
+      days,
+      overdueCount: overdueTasks.length,
+      dueTaskCount: dueTasks.length,
+      dayGroupCount: result.dayGroups.length,
+      todoistConnected: todoistStatus.connected,
+      googleCalendarConnected: googleCalendarStatus.connected,
+    });
 
     return result;
   }
@@ -157,7 +188,11 @@ export class TodayReviewService {
 
     try {
       await this.taskService.rememberTaskSummaries(tasks);
-    } catch {
+    } catch (error) {
+      this.logger?.warn('Task cache refresh failed after review', {
+        taskCount: tasks.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Cache refresh should not break read views.
     }
   }
@@ -170,7 +205,11 @@ export class TodayReviewService {
     try {
       const events = await this.googleCalendarClient.getEventRecordsForUpcomingDays(days);
       await this.eventService.rememberEvents(events);
-    } catch {
+    } catch (error) {
+      this.logger?.warn('Event cache refresh failed after review', {
+        days,
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Cache refresh should not break read views.
     }
   }

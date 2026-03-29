@@ -11,6 +11,7 @@ import type { GoogleCalendarEventRecord } from '../../domain/event';
 import type { TodoistTaskRecord } from '../../domain/task';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
+import type { Logger } from '../../logging/logger';
 import { parseLocalDateTimeInput, getLocalDateParts } from '../../utils/time';
 import {
   buildOverdueReminderBatchMessage,
@@ -30,6 +31,7 @@ export class ReminderService {
     private readonly reminderJobRepository: ReminderJobRepository,
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
+    private readonly logger: Logger,
   ) {}
 
   async syncUpcomingReminders(now = new Date()) {
@@ -46,6 +48,12 @@ export class ReminderService {
         : Promise.resolve([]),
     ]);
 
+    this.logger.debug('Loaded upcoming items for reminder sync', {
+      taskCount: tasks.length,
+      eventCount: events.length,
+      now: now.toISOString(),
+    });
+
     for (const task of tasks) {
       await this.syncTask(task, now);
     }
@@ -57,6 +65,12 @@ export class ReminderService {
 
   async syncTask(task: TodoistTaskRecord, now = new Date()) {
     await this.reminderJobRepository.cancelPendingJobsForSource('task', task.id);
+    this.logger.debug('Syncing task reminders', {
+      taskId: task.id,
+      taskStatus: task.taskStatus,
+      dueDate: task.dueDate,
+      dueDateTimeUtc: task.dueDateTimeUtc,
+    });
 
     if (task.taskStatus !== 'active') {
       return;
@@ -87,6 +101,13 @@ export class ReminderService {
         ).toISOString(),
         channelId: this.config.remindersChannelId,
         payload,
+      });
+      this.logger.debug('Scheduled overdue task reminder', {
+        taskId: task.id,
+        remindAtUtc: parseLocalDateTimeInput(
+          `${localToday} ${String(OVERDUE_TASK_DAILY_REMINDER_HOUR).padStart(2, '0')}:00`,
+          this.config.timezone,
+        ).toISOString(),
       });
     }
 
@@ -121,14 +142,25 @@ export class ReminderService {
       channelId: this.config.remindersChannelId,
       payload,
     });
+    this.logger.debug('Scheduled due-soon task reminder', {
+      taskId: task.id,
+      remindAtUtc: remindAt.toISOString(),
+    });
   }
 
   async cancelTaskReminders(taskId: string) {
     await this.reminderJobRepository.cancelPendingJobsForSource('task', taskId);
+    this.logger.debug('Cancelled task reminders', { taskId });
   }
 
   async syncEvent(event: GoogleCalendarEventRecord, now = new Date()) {
     await this.reminderJobRepository.cancelPendingJobsForSource('event', event.id);
+    this.logger.debug('Syncing event reminders', {
+      eventId: event.id,
+      eventStatus: event.eventStatus,
+      startUtc: event.startUtc,
+      isRecurring: event.isRecurring,
+    });
 
     if (event.eventStatus !== 'active' || event.isRecurring) {
       return;
@@ -160,22 +192,34 @@ export class ReminderService {
       channelId: this.config.remindersChannelId,
       payload,
     });
+    this.logger.debug('Scheduled upcoming event reminder', {
+      eventId: event.id,
+      remindAtUtc: remindAt.toISOString(),
+    });
   }
 
   async cancelEventReminders(eventId: string) {
     await this.reminderJobRepository.cancelPendingJobsForSource('event', eventId);
+    this.logger.debug('Cancelled event reminders', { eventId });
   }
 
-  async deliverDueReminders(client: Client, logger: Pick<Console, 'info' | 'error'>, now = new Date()) {
+  async deliverDueReminders(client: Client, now = new Date()) {
     const dueJobs = await this.reminderJobRepository.listDuePendingJobs(now.toISOString());
 
     if (dueJobs.length === 0) {
+      this.logger.debug('No due reminders to deliver', { now: now.toISOString() });
       return;
     }
 
     const channel = await resolveTextChannel(client, this.config.remindersChannelId, 'REMINDERS_CHANNEL_ID');
     const overdueJobs = dueJobs.filter((job) => job.reminderKind === 'task_overdue');
     const nonOverdueJobs = dueJobs.filter((job) => job.reminderKind !== 'task_overdue');
+    this.logger.info('Delivering due reminders', {
+      totalJobs: dueJobs.length,
+      overdueJobs: overdueJobs.length,
+      immediateJobs: nonOverdueJobs.length,
+      channelId: this.config.remindersChannelId,
+    });
 
     if (overdueJobs.length > 0) {
       try {
@@ -188,10 +232,12 @@ export class ReminderService {
         const deliveredAtUtc = new Date().toISOString();
         for (const job of overdueJobs) {
           await this.reminderJobRepository.markDelivered(job.id, deliveredAtUtc);
-          logger.info(`Delivered reminder ${job.id}`);
+          this.logger.info('Delivered reminder', { jobId: job.id, reminderKind: job.reminderKind });
         }
       } catch (error) {
-        logger.error('Failed to deliver overdue reminder batch', error);
+        this.logger.error('Failed to deliver overdue reminder batch', error, {
+          jobCount: overdueJobs.length,
+        });
         for (const job of overdueJobs) {
           await this.reminderJobRepository.markFailed(job.id);
         }
@@ -204,9 +250,12 @@ export class ReminderService {
           content: buildReminderMessage(job.payload, this.config.timezone),
         });
         await this.reminderJobRepository.markDelivered(job.id, new Date().toISOString());
-        logger.info(`Delivered reminder ${job.id}`);
+        this.logger.info('Delivered reminder', { jobId: job.id, reminderKind: job.reminderKind });
       } catch (error) {
-        logger.error(`Failed to deliver reminder ${job.id}`, error);
+        this.logger.error('Failed to deliver reminder', error, {
+          jobId: job.id,
+          reminderKind: job.reminderKind,
+        });
         await this.reminderJobRepository.markFailed(job.id);
       }
     }
@@ -214,12 +263,12 @@ export class ReminderService {
 
   async retryFailedReminders(now = new Date()) {
     await this.reminderJobRepository.resetFailedJobs(now.toISOString());
+    this.logger.debug('Reset failed reminders for retry', { now: now.toISOString() });
   }
 
   async pruneFinishedReminders(now = new Date()) {
     const cutoff = new Date(now.getTime() - FINISHED_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     await this.reminderJobRepository.pruneFinishedJobs(cutoff.toISOString());
+    this.logger.debug('Pruned finished reminders', { cutoffUtc: cutoff.toISOString() });
   }
 }
-
-export type ReminderLogger = Pick<Console, 'info' | 'error'>;

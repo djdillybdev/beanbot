@@ -38,6 +38,20 @@ export interface TaskCreateInput {
   labels?: string[];
 }
 
+export interface InboxTaskCaptureResult {
+  text: string;
+}
+
+export interface TodoistCompletedTaskRecord {
+  id: string;
+  title: string;
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  completedAtUtc: string;
+  url: string;
+}
+
 export interface TaskEditInput {
   content?: string;
   dueString?: string;

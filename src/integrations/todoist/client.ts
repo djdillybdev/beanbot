@@ -1,12 +1,14 @@
 import type { AppConfig } from '../../config';
-import type { DailyTaskSummary } from '../../domain/daily-review';
+import type { CompletedTaskSummary, DailyTaskSummary } from '../../domain/daily-review';
 import type {
+  InboxTaskCaptureResult,
+  TodoistCompletedTaskRecord,
   TaskCreateInput,
   TodoistProjectRecord,
   TodoistTaskRecord,
 } from '../../domain/task';
 import type { StoredOAuthToken } from '../../domain/oauth';
-import { getLocalDateParts, formatLocalTime } from '../../utils/time';
+import { getLocalDateParts, formatLocalTime, getZonedDayBounds } from '../../utils/time';
 import { OAuthTokenRepository } from '../../db/oauth-token-repository';
 import { normalizeTaskTitle } from '../../utils/text';
 
@@ -39,6 +41,14 @@ interface TodoistTaskUpdatePayload {
   due_string?: string | null;
 }
 
+interface TodoistCompletedTaskResponse {
+  id: string;
+  content: string;
+  priority: number;
+  project_id?: string | null;
+  completed_at: string;
+}
+
 export class TodoistClient {
   constructor(
     private readonly config: AppConfig,
@@ -60,6 +70,18 @@ export class TodoistClient {
 
   async getDailyTasks(): Promise<{ overdueTasks: DailyTaskSummary[]; dueTodayTasks: DailyTaskSummary[] }> {
     return this.getTasksForUpcomingDays(1);
+  }
+
+  async getCompletedTasksForToday(now = new Date()): Promise<CompletedTaskSummary[]> {
+    const token = await this.requireToken();
+    const dayBounds = getZonedDayBounds(now, this.config.timezone);
+    const tasks = await this.fetchCompletedTasksByCompletionDate(token, dayBounds.startUtc, dayBounds.endUtc);
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return tasks
+      .map((task) => mapCompletedTaskSummary(task, this.config.timezone, task.projectId ? projectNames.get(task.projectId) : undefined))
+      .sort((left, right) => left.completedSortKey.localeCompare(right.completedSortKey));
   }
 
   async getTasksForUpcomingDays(
@@ -173,6 +195,25 @@ export class TodoistClient {
       this.config.timezone,
       task.project_id ? projectNames.get(task.project_id) : undefined,
     );
+  }
+
+  async quickAddTask(text: string): Promise<InboxTaskCaptureResult> {
+    const token = await this.requireToken();
+    const response = await fetch(`${TODOIST_API_BASE_URL}/tasks/quick`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Todoist quick add failed: ${response.status} ${body}`);
+    }
+
+    return { text };
   }
 
   async getTask(taskId: string): Promise<TodoistTaskRecord> {
@@ -389,6 +430,56 @@ export class TodoistClient {
 
     return projects;
   }
+
+  private async fetchCompletedTasksByCompletionDate(
+    token: StoredOAuthToken,
+    since: string,
+    until: string,
+  ): Promise<TodoistCompletedTaskRecord[]> {
+    const results: TodoistCompletedTaskRecord[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const url = new URL(`${TODOIST_API_BASE_URL}/tasks/completed/by_completion_date`);
+      url.searchParams.set('since', since);
+      url.searchParams.set('until', until);
+      url.searchParams.set('limit', '200');
+
+      if (cursor) {
+        url.searchParams.set('cursor', cursor);
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Todoist completed tasks fetch failed: ${response.status} ${text}`);
+      }
+
+      const payload = (await response.json()) as {
+        items: TodoistCompletedTaskResponse[];
+        next_cursor?: string | null;
+      };
+
+      results.push(
+        ...payload.items.map((task) => ({
+          id: task.id,
+          title: task.content,
+          priority: task.priority,
+          projectId: task.project_id ?? undefined,
+          completedAtUtc: new Date(task.completed_at).toISOString(),
+          url: `https://app.todoist.com/app/task/${task.id}`,
+        })),
+      );
+      cursor = payload.next_cursor ?? null;
+    } while (cursor);
+
+    return results;
+  }
 }
 
 function compareTaskSummaries(left: DailyTaskSummary, right: DailyTaskSummary) {
@@ -527,6 +618,24 @@ function mapActiveTaskRecord(
     labels: task.labels ?? undefined,
     url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
     taskStatus: 'active',
+  };
+}
+
+function mapCompletedTaskSummary(
+  task: TodoistCompletedTaskRecord,
+  timezone: string,
+  projectName?: string,
+): CompletedTaskSummary {
+  return {
+    id: task.id,
+    title: task.title,
+    priority: task.priority,
+    projectId: task.projectId,
+    projectName,
+    completedAtUtc: task.completedAtUtc,
+    completedLabel: `Done at ${formatLocalTime(new Date(task.completedAtUtc), timezone)}`,
+    completedSortKey: task.completedAtUtc,
+    url: task.url,
   };
 }
 

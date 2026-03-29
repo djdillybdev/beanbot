@@ -4,12 +4,14 @@ import type { AppConfig } from '../config';
 import { OAuthTokenRepository } from '../db/oauth-token-repository';
 import { GoogleCalendarOAuthService } from '../integrations/google-calendar/oauth';
 import { TodoistOAuthService } from '../integrations/todoist/oauth';
+import type { Logger } from '../logging/logger';
 
 interface CreateServerDependencies {
   config: AppConfig;
   tokenRepository: OAuthTokenRepository;
   todoistOAuthService: TodoistOAuthService;
   googleCalendarOAuthService: GoogleCalendarOAuthService;
+  logger: Logger;
 }
 
 export function createServer({
@@ -17,6 +19,7 @@ export function createServer({
   tokenRepository,
   todoistOAuthService,
   googleCalendarOAuthService,
+  logger,
 }: CreateServerDependencies) {
   const app = express();
 
@@ -35,12 +38,18 @@ export function createServer({
       googleCalendarConnected: googleToken !== null,
       timestamp: new Date().toISOString(),
     });
+    logger.debug('Served health check', {
+      todoistConnected: todoistToken !== null,
+      googleCalendarConnected: googleToken !== null,
+    });
   });
 
   app.get('/auth/todoist/start', (_request, response) => {
     try {
+      logger.info('Redirecting to Todoist OAuth start');
       response.redirect(todoistOAuthService.getStartUrl());
     } catch (error) {
+      logger.error('Todoist OAuth start failed', error);
       response.status(500).type('html').send(renderAuthPage('Todoist setup error', getErrorMessage(error)));
     }
   });
@@ -51,6 +60,7 @@ export function createServer({
     const state = request.query.state;
 
     if (typeof error === 'string') {
+      logger.warn('Todoist authorization returned an error', { error });
       response.status(400).type('html').send(renderAuthPage('Todoist authorization failed', error));
       return;
     }
@@ -71,8 +81,10 @@ export function createServer({
     try {
       const token = await todoistOAuthService.exchangeCode(code);
       await tokenRepository.save(token);
+      logger.info('Todoist connected successfully');
       response.type('html').send(renderAuthPage('Todoist connected', 'You can return to Discord and run /today.'));
     } catch (callbackError) {
+      logger.error('Todoist OAuth callback failed', callbackError);
       response
         .status(500)
         .type('html')
@@ -82,8 +94,10 @@ export function createServer({
 
   app.get('/auth/google/start', (_request, response) => {
     try {
+      logger.info('Redirecting to Google Calendar OAuth start');
       response.redirect(googleCalendarOAuthService.getStartUrl());
     } catch (error) {
+      logger.error('Google Calendar OAuth start failed', error);
       response.status(500).type('html').send(renderAuthPage('Google setup error', getErrorMessage(error)));
     }
   });
@@ -94,6 +108,7 @@ export function createServer({
     const state = request.query.state;
 
     if (typeof error === 'string') {
+      logger.warn('Google Calendar authorization returned an error', { error });
       response.status(400).type('html').send(renderAuthPage('Google authorization failed', error));
       return;
     }
@@ -114,10 +129,12 @@ export function createServer({
     try {
       const token = await googleCalendarOAuthService.exchangeCode(code);
       await tokenRepository.save(token);
+      logger.info('Google Calendar connected successfully');
       response
         .type('html')
         .send(renderAuthPage('Google Calendar connected', 'You can return to Discord and run /today.'));
     } catch (callbackError) {
+      logger.error('Google Calendar OAuth callback failed', callbackError);
       response
         .status(500)
         .type('html')

@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   MessageFlags,
   ModalBuilder,
+  type Message,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type ModalSubmitInteraction,
@@ -37,6 +38,7 @@ import {
   buildTaskReopenSuccessEmbed,
   buildTaskResolutionMessage,
 } from './renderers/task';
+import type { Logger } from '../logging/logger';
 
 const TASK_EDIT_MODAL_PREFIX = 'task-edit:';
 const EVENT_ADD_DETAILS_MODAL_PREFIX = 'event-add-details:';
@@ -60,6 +62,7 @@ export interface CommandDependencies {
   taskService: TaskService;
   eventService: EventService;
   eventDraftStore: EventDraftStore;
+  logger: Logger;
 }
 
 export async function handleChatInputCommand(
@@ -93,17 +96,24 @@ export async function handleChatInputCommand(
         '`/event edit` opens a guided edit flow for a recent event.',
         '`/event delete` deletes a recent event.',
         '',
+        'Inbox capture:',
+        '- Every non-bot message in `#inbox` is treated as a new Todoist task via quick add.',
+        '- Successful captures get a reaction. The bot replies only if capture fails.',
+        '',
         'Connect providers:',
         `- Todoist: ${dependencies.config.publicBaseUrl}/auth/todoist/start`,
         `- Google Calendar: ${dependencies.config.publicBaseUrl}/auth/google/start`,
         '',
         'Intended channel layout:',
-        '- `#inbox` for command entry',
-        '- `#today` for daily summaries',
+        '- `#inbox` for task capture and command entry',
+        '- `#today` for daily summaries and `/today`',
         '- `#reminders` for reminder delivery',
-        '- `#planning` for weekly/monthly views',
+        '- `#planning` for `/week` and `/month`',
+        '- `#logs` for runtime diagnostics and failures',
       ].join('\n'),
-      flags: MessageFlags.Ephemeral,
+      flags: shouldUseEphemeralReply(interaction, dependencies.config, 'help')
+        ? MessageFlags.Ephemeral
+        : undefined,
     });
     return;
   }
@@ -113,7 +123,9 @@ export async function handleChatInputCommand(
 
     await interaction.reply({
       embeds: buildTodayEmbeds(dependencies.config, review),
-      flags: MessageFlags.Ephemeral,
+      flags: shouldUseEphemeralReply(interaction, dependencies.config, 'today')
+        ? MessageFlags.Ephemeral
+        : undefined,
     });
     return;
   }
@@ -122,7 +134,9 @@ export async function handleChatInputCommand(
     const review = await dependencies.todayReviewService.getWeekReview();
     await interaction.reply({
       embeds: buildPeriodEmbeds('Week', 'Next 7 days', dependencies.config.timezone, review),
-      flags: MessageFlags.Ephemeral,
+      flags: shouldUseEphemeralReply(interaction, dependencies.config, 'week')
+        ? MessageFlags.Ephemeral
+        : undefined,
     });
     return;
   }
@@ -131,7 +145,9 @@ export async function handleChatInputCommand(
     const review = await dependencies.todayReviewService.getMonthReview();
     await interaction.reply({
       embeds: buildPeriodEmbeds('Month', 'Next 31 days', dependencies.config.timezone, review),
-      flags: MessageFlags.Ephemeral,
+      flags: shouldUseEphemeralReply(interaction, dependencies.config, 'month')
+        ? MessageFlags.Ephemeral
+        : undefined,
     });
     return;
   }
@@ -194,6 +210,11 @@ export async function handleChatInputCommand(
         content: buildTaskResolutionMessage(result.resolution, result.status),
         flags: MessageFlags.Ephemeral,
       });
+      dependencies.logger.warn('Task completion did not resolve to a single task', {
+        status: result.status,
+        query: task,
+        matchCount: result.resolution.matches.length,
+      });
       return;
     }
 
@@ -215,7 +236,9 @@ export async function handleChatInputCommand(
 
     if (subcommand === 'delete') {
       const taskId = interaction.options.getString('task', true);
-      const task = await withTaskCommandError(interaction, () => dependencies.taskService.deleteTask(taskId));
+      const task = await withTaskCommandError(interaction, dependencies.logger, () =>
+        dependencies.taskService.deleteTask(taskId),
+      );
 
       if (!task) {
         return;
@@ -230,7 +253,9 @@ export async function handleChatInputCommand(
 
     if (subcommand === 'reopen') {
       const taskId = interaction.options.getString('task', true);
-      const task = await withTaskCommandError(interaction, () => dependencies.taskService.reopenTask(taskId));
+      const task = await withTaskCommandError(interaction, dependencies.logger, () =>
+        dependencies.taskService.reopenTask(taskId),
+      );
 
       if (!task) {
         return;
@@ -276,7 +301,7 @@ export async function handleChatInputCommand(
 
     if (subcommand === 'delete') {
       const eventId = interaction.options.getString('event', true);
-      const event = await withEventCommandError(interaction, () =>
+      const event = await withEventCommandError(interaction, dependencies.logger, () =>
         dependencies.eventService.deleteEvent(eventId),
       );
 
@@ -298,6 +323,26 @@ export async function handleChatInputCommand(
       flags: MessageFlags.Ephemeral,
     });
   }
+}
+
+export async function handleInboxMessage(
+  message: Message,
+  dependencies: CommandDependencies,
+): Promise<void> {
+  if (!message.inGuild()) {
+    return;
+  }
+
+  if (message.author.bot || message.system || message.webhookId) {
+    return;
+  }
+
+  if (message.channelId !== dependencies.config.inboxChannelId) {
+    return;
+  }
+
+  await dependencies.taskService.addInboxTask(message.content);
+  await message.react('✅');
 }
 
 export async function handleAutocompleteInteraction(
@@ -570,7 +615,7 @@ export async function handleModalSubmitInteraction(
     return;
   }
 
-  const task = await withTaskCommandError(interaction, () =>
+  const task = await withTaskCommandError(interaction, dependencies.logger, () =>
     dependencies.taskService.editTask(taskId, {
     content,
     dueString,
@@ -596,6 +641,26 @@ function toPriority(value: number | null | undefined): 1 | 2 | 3 | 4 | undefined
   }
 
   return undefined;
+}
+
+function shouldUseEphemeralReply(
+  interaction: ChatInputCommandInteraction,
+  config: AppConfig,
+  commandName: 'help' | 'today' | 'week' | 'month',
+) {
+  if (commandName === 'today') {
+    return interaction.channelId !== config.todayChannelId;
+  }
+
+  if (commandName === 'week' || commandName === 'month') {
+    if (config.planningChannelId) {
+      return interaction.channelId !== config.planningChannelId;
+    }
+
+    return true;
+  }
+
+  return interaction.channelId !== config.inboxChannelId;
 }
 
 function parsePriority(value: string): 1 | 2 | 3 | 4 | undefined {
@@ -760,12 +825,18 @@ function setOptionalValue(input: TextInputBuilder, value?: string) {
 
 async function withTaskCommandError<T>(
   interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
+  logger: Logger,
   action: () => Promise<T>,
 ) {
   try {
     return await action();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Task command failed.';
+    logger.error('Task command failed', error, {
+      customId: interaction.isModalSubmit() ? interaction.customId : undefined,
+      commandName: interaction.isChatInputCommand() ? interaction.commandName : undefined,
+      channelId: interaction.channelId ?? undefined,
+    });
 
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });
@@ -779,12 +850,18 @@ async function withTaskCommandError<T>(
 
 async function withEventCommandError<T>(
   interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
+  logger: Logger,
   action: () => Promise<T>,
 ) {
   try {
     return await action();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Event command failed.';
+    logger.error('Event command failed', error, {
+      customId: interaction.isModalSubmit() ? interaction.customId : undefined,
+      commandName: interaction.isChatInputCommand() ? interaction.commandName : undefined,
+      channelId: interaction.channelId ?? undefined,
+    });
 
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral });

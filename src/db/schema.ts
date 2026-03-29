@@ -112,3 +112,17 @@ export const calendarEventMap = sqliteTable('calendar_event_map', {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const todayStatusMessage = sqliteTable('today_status_message', {
+  dateKey: text('date_key').primaryKey(),
+  channelId: text('channel_id').notNull(),
+  messageId: text('message_id').notNull(),
+  snapshotJson: text('snapshot_json').notNull(),
+  isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAtUtc: text('created_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAtUtc: text('updated_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});

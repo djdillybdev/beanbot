@@ -1,9 +1,8 @@
-import type { Client } from 'discord.js';
-
-import { TodayReviewService } from '../app/today/get-today-review';
+import type { Logger } from '../logging/logger';
 import type { AppConfig } from '../config';
+import { TodayStatusService } from '../app/today/today-status-service';
 import { getLocalDateParts } from '../utils/time';
-import { postTodayDigest } from './post-today-digest';
+import { syncTodayStatus } from './post-today-digest';
 
 const DAILY_DIGEST_HOUR = 8;
 
@@ -12,20 +11,19 @@ export interface TodayDigestScheduler {
 }
 
 export function startTodayDigestScheduler(
-  client: Client,
   config: AppConfig,
-  todayReviewService: TodayReviewService,
-  logger: Pick<Console, 'info' | 'error'>,
+  todayStatusService: TodayStatusService,
+  logger: Logger,
 ): TodayDigestScheduler {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
   const runDigest = async (reason: 'startup' | 'scheduled') => {
     try {
-      logger.info(`Running today digest (${reason})`);
-      await postTodayDigest(client, config, todayReviewService, logger);
+      logger.info('Running today digest', { reason });
+      await syncTodayStatus(todayStatusService, logger, reason);
     } catch (error) {
-      logger.error(`Today digest failed during ${reason}`, error);
+      logger.error('Today digest failed', error, { reason });
     } finally {
       if (!stopped) {
         scheduleNext();
@@ -40,7 +38,10 @@ export function startTodayDigestScheduler(
 
     const nextRun = getNextDigestRun(config.timezone, DAILY_DIGEST_HOUR);
     const delayMs = Math.max(nextRun.getTime() - Date.now(), 1_000);
-    logger.info(`Next today digest scheduled for ${nextRun.toISOString()}`);
+    logger.debug('Scheduled next today digest', {
+      nextRunUtc: nextRun.toISOString(),
+      delayMs,
+    });
 
     timer = setTimeout(() => {
       void runDigest('scheduled');

@@ -4,7 +4,7 @@ Discord bot for personal task and calendar management.
 
 ## Current foundation
 
-This repo now contains the foundation plus the Phase 1 read-only surface:
+This repo now contains the foundation plus current Phase 5 work:
 
 - Bun + TypeScript runtime
 - `discord.js` bot with guild-scoped slash command registration
@@ -13,14 +13,18 @@ This repo now contains the foundation plus the Phase 1 read-only surface:
 - Google Calendar OAuth + read integration
 - Drizzle + SQLite migrations for local config and OAuth token storage
 - Automated daily `#today` digest posting at 8:00 AM local time
+- Live `#today` status message that is edited throughout the day and kept as daily channel history
 - Automated `#reminders` delivery for overdue tasks, timed tasks due soon, and upcoming one-off events
-- `/ping`, `/help`, `/today`, `/week`, `/month`, `/task add`, and `/task done` slash commands
+- `#inbox` quick capture into Todoist via Quick Add
+- Structured runtime logging to local console and optional Discord `#logs`
+- `/ping`, `/help`, `/today`, `/week`, `/month`, task commands, and event commands
 
 ## Prerequisites
 
 - Bun `>= 1.1.0`
 - A Discord application and bot token
 - A private Discord guild for command registration
+- Discord Message Content intent enabled for the bot so `#inbox` capture can read message text
 
 ## Environment
 
@@ -31,8 +35,13 @@ Copy `.env.example` to `.env` and fill in:
 - `DISCORD_GUILD_ID`
 - `DATABASE_URL`
 - `BOT_TIMEZONE`
+- `INBOX_CHANNEL_ID`
 - `TODAY_CHANNEL_ID`
 - `REMINDERS_CHANNEL_ID`
+- `PLANNING_CHANNEL_ID` (optional, recommended for `/week` and `/month`)
+- `LOGS_CHANNEL_ID` (optional, for Discord runtime logs)
+- `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`; default `info`)
+- `DISCORD_LOG_LEVEL` (`debug`, `info`, `warn`, or `error`; default `warn`)
 - `OAUTH_STATE_SECRET` for OAuth flows
 - `HOST`
 - `PORT`
@@ -63,18 +72,40 @@ bun run dev
 - `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
 - `/week` shows overdue work plus the next 7 days of tasks and events
 - `/month` shows overdue work plus the next 31 days of tasks and events
-- `/task add` creates a Todoist task via quick add
+- `/task add` creates a Todoist task with explicit structured fields
 - `/task done` completes a recently seen task by exact title
 - `/event add` opens a guided Google Calendar event creation flow
 - `/event edit` opens a guided editor for a recent one-off Google Calendar event
 - `/event delete` deletes a recent one-off Google Calendar event
 
+## Inbox capture
+
+`INBOX_CHANNEL_ID` is the default capture surface:
+
+- every non-bot message in `#inbox` is sent to Todoist quick add as a new task
+- successful captures get a checkmark reaction
+- the bot replies only when capture fails
+
+## Logging
+
+Beanbot now supports separate runtime log thresholds for console and Discord:
+
+- `LOG_LEVEL` controls what is written in the local bot process
+- `DISCORD_LOG_LEVEL` controls what is mirrored into `#logs`
+- `LOGS_CHANNEL_ID` enables the Discord log sink
+- `debug` includes action-lifecycle detail for commands, inbox capture, schedulers, and reminders
+- `info` is the recommended production console default
+- Discord logs are sanitized summaries, so raw inbox text and secret values are not posted there
+
 ## Daily digest
 
-The bot now posts the `/today` digest into the configured `TODAY_CHANNEL_ID` channel:
+The bot now keeps one live status message per local day in the configured `TODAY_CHANNEL_ID` channel:
 
-- once on bot startup for testing
-- every day at 8:00 AM in `BOT_TIMEZONE`
+- created or refreshed on startup
+- refreshed every day at 8:00 AM in `BOT_TIMEZONE`
+- polled every 5 minutes to catch external Todoist changes
+- updated immediately after bot-driven task and event changes
+- pinned for the current day, with older daily status messages left in channel history
 
 ## Reminders
 

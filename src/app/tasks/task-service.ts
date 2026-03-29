@@ -3,6 +3,7 @@ import type { ReminderService } from '../reminders/reminder-service';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import type {
+  InboxTaskCaptureResult,
   ProjectAutocompleteSuggestion,
   TaskAutocompleteSuggestion,
   TaskCommandResult,
@@ -13,6 +14,8 @@ import type {
   TodoistTaskRecord,
 } from '../../domain/task';
 import { TodoistClient } from '../../integrations/todoist/client';
+import type { Logger } from '../../logging/logger';
+import { TodayStatusRefreshNotifier } from '../today/today-status-refresh-notifier';
 import { normalizeTaskTitle } from '../../utils/text';
 import { buildTaskAutocompleteLabel } from '../../bot/renderers/task-autocomplete';
 
@@ -22,9 +25,17 @@ export class TaskService {
     private readonly taskMapRepository: TodoistTaskMapRepository,
     private readonly actionLogRepository: ActionLogRepository,
     private readonly reminderService?: ReminderService,
+    private readonly todayStatusRefreshNotifier?: TodayStatusRefreshNotifier,
+    private readonly logger?: Logger,
   ) {}
 
   async addTask(input: TaskCreateInput): Promise<TaskCommandResult> {
+    this.logger?.debug('Creating Todoist task', {
+      hasDue: Boolean(input.due),
+      hasProjectId: Boolean(input.projectId),
+      labelCount: input.labels?.length ?? 0,
+      priority: input.priority ?? 1,
+    });
     const task = await this.todoistClient.createTask(input);
     await this.taskMapRepository.upsert(task);
     await this.actionLogRepository.insert({
@@ -34,8 +45,52 @@ export class TaskService {
       resultJson: JSON.stringify(task),
     });
     await this.reminderService?.syncTask(task);
+    this.logger?.info('Created Todoist task', {
+      taskId: task.id,
+      projectId: task.projectId,
+      hasDue: Boolean(task.dueDate || task.dueDateTimeUtc),
+    });
+    this.todayStatusRefreshNotifier?.requestRefresh('task.add');
 
     return { task };
+  }
+
+  async addInboxTask(rawText: string): Promise<InboxTaskCaptureResult> {
+    const text = rawText.trim();
+
+    if (text.length === 0) {
+      this.logger?.warn('Rejected inbox capture because message text was empty.');
+      throw new Error('Inbox capture needs message text. Send a plain text message in #inbox.');
+    }
+
+    try {
+      this.logger?.debug('Creating inbox task via quick add', {
+        text: rawText,
+        textLength: text.length,
+      });
+      const result = await this.todoistClient.quickAddTask(text);
+      await this.actionLogRepository.insert({
+        actionType: 'task.inbox_add',
+        sourceCommand: 'inbox.message',
+        payloadJson: JSON.stringify({ text }),
+        resultJson: JSON.stringify(result),
+      });
+
+      this.logger?.info('Created inbox task via quick add', { textLength: text.length });
+      this.todayStatusRefreshNotifier?.requestRefresh('task.inbox_add');
+      return result;
+    } catch (error) {
+      await this.actionLogRepository.insert({
+        actionType: 'task.inbox_add.failed',
+        sourceCommand: 'inbox.message',
+        payloadJson: JSON.stringify({ text }),
+        resultJson: JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+      this.logger?.error('Inbox quick add failed', error, { textLength: text.length });
+      throw error;
+    }
   }
 
   async completeTask(query: string): Promise<
@@ -55,6 +110,8 @@ export class TaskService {
         resultJson: JSON.stringify(taskById),
       });
       await this.reminderService?.cancelTaskReminders(taskById.id);
+      this.logger?.info('Completed Todoist task', { taskId: taskById.id, resolver: 'autocomplete-id' });
+      this.todayStatusRefreshNotifier?.requestRefresh('task.done');
 
       return {
         status: 'completed',
@@ -71,6 +128,7 @@ export class TaskService {
         sourceCommand: '/task done',
         payloadJson: JSON.stringify({ query }),
       });
+      this.logger?.warn('No recent task matched completion query', { query });
       return {
         status: 'no_match',
         resolution: { matches: [], query },
@@ -83,6 +141,10 @@ export class TaskService {
         sourceCommand: '/task done',
         payloadJson: JSON.stringify({ query }),
         resultJson: JSON.stringify(matches),
+      });
+      this.logger?.warn('Task completion query was ambiguous', {
+        query,
+        matchCount: matches.length,
       });
       return {
         status: 'ambiguous',
@@ -105,6 +167,8 @@ export class TaskService {
       resultJson: JSON.stringify(task),
     });
     await this.reminderService?.cancelTaskReminders(task.id);
+    this.logger?.info('Completed Todoist task', { taskId: task.id, resolver: 'title-fallback' });
+    this.todayStatusRefreshNotifier?.requestRefresh('task.done');
 
     return {
       status: 'completed',
@@ -129,6 +193,14 @@ export class TaskService {
   }
 
   async editTask(taskId: string, input: TaskEditInput): Promise<TodoistTaskRecord> {
+    this.logger?.debug('Editing Todoist task', {
+      taskId,
+      hasContent: Boolean(input.content?.trim()),
+      hasDueString: Boolean(input.dueString?.trim()),
+      hasProjectName: Boolean(input.projectName?.trim()),
+      labelCount: input.labels?.length ?? 0,
+      priority: input.priority,
+    });
     const existingTask = await this.taskMapRepository.findById(taskId, ['active']);
 
     if (!existingTask) {
@@ -219,6 +291,8 @@ export class TaskService {
       resultJson: JSON.stringify(task),
     });
     await this.reminderService?.syncTask(task);
+    this.logger?.info('Updated Todoist task', { taskId: task.id, projectId: task.projectId });
+    this.todayStatusRefreshNotifier?.requestRefresh('task.edit');
 
     return task;
   }
@@ -239,6 +313,8 @@ export class TaskService {
       resultJson: JSON.stringify(task),
     });
     await this.reminderService?.cancelTaskReminders(taskId);
+    this.logger?.info('Deleted Todoist task', { taskId });
+    this.todayStatusRefreshNotifier?.requestRefresh('task.delete');
 
     return { ...task, taskStatus: 'deleted' };
   }
@@ -260,17 +336,21 @@ export class TaskService {
       resultJson: JSON.stringify(reopenedTask),
     });
     await this.reminderService?.syncTask(reopenedTask);
+    this.logger?.info('Reopened Todoist task', { taskId });
+    this.todayStatusRefreshNotifier?.requestRefresh('task.reopen');
 
     return reopenedTask;
   }
 
   async rememberTasks(tasks: TodoistTaskRecord[]) {
+    this.logger?.debug('Refreshing task cache with full records', { taskCount: tasks.length });
     for (const task of tasks) {
       await this.taskMapRepository.upsert(task);
     }
   }
 
   async rememberTaskSummaries(tasks: DailyTaskSummary[]) {
+    this.logger?.debug('Refreshing task cache with summaries', { taskCount: tasks.length });
     for (const task of tasks) {
       await this.taskMapRepository.upsert({
         id: task.id,
@@ -289,10 +369,18 @@ export class TaskService {
   }
 
   async getTaskDoneAutocompleteSuggestions(query: string): Promise<TaskAutocompleteSuggestion[]> {
+    this.logger?.debug('Building task autocomplete suggestions', {
+      mode: 'done',
+      queryLength: query.length,
+    });
     return this.getTaskAutocompleteSuggestions(query, ['active']);
   }
 
   async getTaskReopenAutocompleteSuggestions(query: string): Promise<TaskAutocompleteSuggestion[]> {
+    this.logger?.debug('Building task autocomplete suggestions', {
+      mode: 'reopen',
+      queryLength: query.length,
+    });
     return this.getTaskAutocompleteSuggestions(query, ['completed']);
   }
 
@@ -300,10 +388,17 @@ export class TaskService {
     const projects = await this.todoistClient.getProjects();
     const normalizedQuery = normalizeTaskTitle(query);
 
-    return rankProjects(projects, normalizedQuery).slice(0, 25).map((project) => ({
+    const suggestions = rankProjects(projects, normalizedQuery).slice(0, 25).map((project) => ({
       name: project.name,
       value: project.id,
     }));
+
+    this.logger?.debug('Built project autocomplete suggestions', {
+      queryLength: query.length,
+      suggestionCount: suggestions.length,
+    });
+
+    return suggestions;
   }
 
   async validateProjectSelection(projectValue: string): Promise<TodoistProjectRecord | null> {

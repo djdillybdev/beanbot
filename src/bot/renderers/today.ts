@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 
 import type { AppConfig } from '../../config';
 import type { DailyReviewResult } from '../../domain/daily-review';
+import { formatLocalDayLabel, formatLocalTime } from '../../utils/time';
 
 export function buildTodayEmbeds(config: AppConfig, review: DailyReviewResult) {
   return [
@@ -19,6 +20,31 @@ export function buildTodayEmbeds(config: AppConfig, review: DailyReviewResult) {
         ),
       )
       .setTimestamp(new Date()),
+  ];
+}
+
+export function buildTodayStatusEmbeds(
+  config: AppConfig,
+  dateKey: string,
+  review: DailyReviewResult,
+  updatedAt: Date,
+) {
+  return [
+    new EmbedBuilder()
+      .setTitle(`Today Status · ${formatLocalDayLabel(dateKey, config.timezone)}`)
+      .setDescription(`Timezone: ${config.timezone}`)
+      .addFields(
+        buildTaskField('Overdue', review.overdueTasks),
+        buildTaskField('Due Today', review.dueTodayTasks),
+        buildCompletedTaskField('Completed', review.completedTodayTasks),
+        buildEventField('Events Today', review.todayEvents),
+        buildStatusField(
+          'Provider Status',
+          review.todoistStatus.message,
+          review.googleCalendarStatus.message,
+        ),
+      )
+      .setFooter({ text: `Last changed at ${formatLocalTime(updatedAt, config.timezone)}` }),
   ];
 }
 
@@ -56,6 +82,23 @@ function buildEventField(
             .join('\n')
             .slice(0, 1024)
         : 'None.',
+    inline: false,
+  };
+}
+
+function buildCompletedTaskField(
+  label: string,
+  tasks: Array<{ title: string; completedLabel: string; url: string }>,
+) {
+  return {
+    name: label,
+    value:
+      tasks.length > 0
+        ? tasks
+            .map((task) => `- [${escapeMarkdown(task.title)}](${task.url}) · ${task.completedLabel}`)
+            .join('\n')
+            .slice(0, 1024)
+        : 'None yet.',
     inline: false,
   };
 }

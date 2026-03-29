@@ -4,14 +4,21 @@ function requiredString(name: string) {
   return z.string().min(1, `${name} is required`);
 }
 
+const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
+
 const envSchema = z.object({
   DISCORD_TOKEN: requiredString('DISCORD_TOKEN'),
   DISCORD_APPLICATION_ID: requiredString('DISCORD_APPLICATION_ID'),
   DISCORD_GUILD_ID: requiredString('DISCORD_GUILD_ID'),
   DATABASE_URL: requiredString('DATABASE_URL'),
   BOT_TIMEZONE: requiredString('BOT_TIMEZONE').default('UTC'),
+  INBOX_CHANNEL_ID: requiredString('INBOX_CHANNEL_ID'),
   TODAY_CHANNEL_ID: requiredString('TODAY_CHANNEL_ID'),
   REMINDERS_CHANNEL_ID: requiredString('REMINDERS_CHANNEL_ID'),
+  PLANNING_CHANNEL_ID: z.string().min(1).optional(),
+  LOGS_CHANNEL_ID: z.string().min(1).optional(),
+  LOG_LEVEL: logLevelSchema.default('info'),
+  DISCORD_LOG_LEVEL: logLevelSchema.default('warn'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().optional(),

@@ -9,6 +9,8 @@ import type {
   GoogleCalendarEventRecord,
 } from '../../domain/event';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
+import type { Logger } from '../../logging/logger';
+import { TodayStatusRefreshNotifier } from '../today/today-status-refresh-notifier';
 import { normalizeTaskTitle } from '../../utils/text';
 import {
   formatLocalDateTimeInput,
@@ -22,9 +24,17 @@ export class EventService {
     private readonly actionLogRepository: ActionLogRepository,
     private readonly timezone: string,
     private readonly reminderService?: ReminderService,
+    private readonly todayStatusRefreshNotifier?: TodayStatusRefreshNotifier,
+    private readonly logger?: Logger,
   ) {}
 
   async addEvent(input: EventCreateInput): Promise<GoogleCalendarEventRecord> {
+    this.logger?.debug('Creating Google Calendar event', {
+      hasLocation: Boolean(input.location?.trim()),
+      hasDescription: Boolean(input.description?.trim()),
+      start: input.start,
+      end: input.end,
+    });
     const normalized = normalizeCreateOrEditInput(input, this.timezone);
     const event = await this.googleCalendarClient.createEvent(normalized);
     await this.eventMapRepository.upsert(event);
@@ -35,6 +45,12 @@ export class EventService {
       resultJson: JSON.stringify(event),
     });
     await this.reminderService?.syncEvent(event);
+    this.logger?.info('Created Google Calendar event', {
+      eventId: event.id,
+      startUtc: event.startUtc,
+      endUtc: event.endUtc,
+    });
+    this.todayStatusRefreshNotifier?.requestRefresh('event.add');
 
     return event;
   }
@@ -61,6 +77,14 @@ export class EventService {
   }
 
   async editEvent(eventId: string, input: EventEditInput): Promise<GoogleCalendarEventRecord> {
+    this.logger?.debug('Editing Google Calendar event', {
+      eventId,
+      hasTitle: Boolean(input.title?.trim()),
+      hasLocation: input.location !== undefined,
+      hasDescription: input.description !== undefined,
+      start: input.start,
+      end: input.end,
+    });
     const existingEvent = await this.eventMapRepository.findById(eventId, ['active']);
 
     if (!existingEvent) {
@@ -123,6 +147,12 @@ export class EventService {
       resultJson: JSON.stringify(event),
     });
     await this.reminderService?.syncEvent(event);
+    this.logger?.info('Updated Google Calendar event', {
+      eventId: event.id,
+      startUtc: event.startUtc,
+      endUtc: event.endUtc,
+    });
+    this.todayStatusRefreshNotifier?.requestRefresh('event.edit');
 
     return event;
   }
@@ -147,11 +177,14 @@ export class EventService {
       resultJson: JSON.stringify(event),
     });
     await this.reminderService?.cancelEventReminders(eventId);
+    this.logger?.info('Deleted Google Calendar event', { eventId });
+    this.todayStatusRefreshNotifier?.requestRefresh('event.delete');
 
     return { ...event, eventStatus: 'deleted' };
   }
 
   async rememberEvents(events: GoogleCalendarEventRecord[]) {
+    this.logger?.debug('Refreshing event cache', { eventCount: events.length });
     for (const event of events) {
       await this.eventMapRepository.upsert(event);
     }
@@ -161,10 +194,17 @@ export class EventService {
     const normalizedQuery = normalizeTaskTitle(query);
     const events = await this.eventMapRepository.getAutocompleteCandidates(normalizedQuery, ['active']);
 
-    return rankAutocompleteEvents(events, normalizedQuery).slice(0, 25).map((event) => ({
+    const suggestions = rankAutocompleteEvents(events, normalizedQuery).slice(0, 25).map((event) => ({
       name: buildEventAutocompleteLabel(event),
       value: event.id,
     }));
+
+    this.logger?.debug('Built event autocomplete suggestions', {
+      queryLength: query.length,
+      suggestionCount: suggestions.length,
+    });
+
+    return suggestions;
   }
 }
 

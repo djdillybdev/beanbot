@@ -10,6 +10,18 @@ export interface DailyTaskSummary {
   url: string;
 }
 
+export interface CompletedTaskSummary {
+  id: string;
+  title: string;
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  completedAtUtc: string;
+  completedLabel: string;
+  completedSortKey: string;
+  url: string;
+}
+
 export interface DailyEventSummary {
   id: string;
   title: string;
@@ -35,6 +47,7 @@ export interface ProviderStatus {
 export interface DailyReviewResult {
   overdueTasks: DailyTaskSummary[];
   dueTodayTasks: DailyTaskSummary[];
+  completedTodayTasks: CompletedTaskSummary[];
   todayEvents: DailyEventSummary[];
   todoistStatus: ProviderStatus;
   googleCalendarStatus: ProviderStatus;
