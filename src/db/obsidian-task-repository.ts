@@ -124,7 +124,7 @@ export class ObsidianTaskRepository {
 
   async listActiveForExport(): Promise<ObsidianExportTask[]> {
     const tasks = await this.db.query.obsidianTask.findMany({
-      where: and(eq(obsidianTask.taskStatus, 'active'), eq(obsidianTask.syncStatus, 'synced')),
+      where: and(eq(obsidianTask.syncStatus, 'synced'), inArray(obsidianTask.taskStatus, ['active', 'completed'])),
       limit: 5000,
     });
 
@@ -182,7 +182,7 @@ export class ObsidianTaskRepository {
         noteBody: input.noteBody ?? null,
         dbUpdatedAtUtc: new Date().toISOString(),
       })
-      .where(and(eq(obsidianTask.todoistTaskId, todoistTaskId), eq(obsidianTask.taskStatus, 'active')));
+      .where(and(eq(obsidianTask.todoistTaskId, todoistTaskId), inArray(obsidianTask.taskStatus, ['active', 'completed'])));
   }
 
   async listPendingPush(): Promise<ObsidianExportTask[]> {
@@ -441,7 +441,7 @@ export class ObsidianTaskRepository {
         lastSyncedAtUtc: now,
         syncStatus: 'synced',
         sourceOfLastChange: 'obsidian',
-        taskStatus: 'active',
+        taskStatus: task.completed ? 'completed' : 'active',
       })
       .where(eq(obsidianTask.todoistTaskId, task.todoistTaskId));
 

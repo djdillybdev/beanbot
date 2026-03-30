@@ -6,7 +6,7 @@ The Obsidian sync lives inside `beanbot` as a separate sidecar process. It reuse
 
 The current implementation covers Milestone 3:
 
-- Todoist active tasks import into dedicated sync tables
+- Todoist task state imports through the Todoist `/sync` endpoint for incremental updates
 - normalized sync state stored in SQLite
 - one task note exported to a stable Todoist-ID Markdown filename inside the configured tasks folder
 - deterministic YAML frontmatter and atomic note writes
@@ -15,6 +15,7 @@ The current implementation covers Milestone 3:
 - supported pending changes are pushed back to Todoist and normalized back into exported notes
 - new untracked notes in the tasks folder are created in Todoist and brought under sync management
 - deleting a tracked note locally deletes it in Todoist and tombstones it in SQLite
+- remote Todoist completion and uncompletion are synced back into tracked Obsidian notes
 
 ## Public Interfaces
 
@@ -65,6 +66,7 @@ The note body is preserved during export and remains local-only.
 ## Implementation Notes
 
 - `obsidian_task` is the canonical local sync table for exported task state.
+- the Obsidian sync subsystem now uses Todoist `/sync` incremental tokens instead of active-task REST polling for inbound task state.
 - `obsidian_task_label` stores non-project Todoist labels.
 - `project` is derived from the first Todoist label matching `proj:<slug>`.
 - `labels` excludes the `proj:<slug>` label to avoid duplication in Obsidian.
@@ -73,6 +75,7 @@ The note body is preserved during export and remains local-only.
 - local note renames are repaired back to the canonical Todoist-ID path on export.
 - `obsidian_sync_event` logs sync successes and failures for debugging.
 - tracked-note disappearance becomes `pending_delete`, then a Todoist delete, then a tombstoned local DB row.
+- remote `checked=true` tasks are stored as completed local tasks rather than disappearing from the export model.
 - changed note frontmatter is parsed for `title`, `completed`, `priority_api`, `project`, `labels`, `due_date`, and `due_datetime`.
 - local edits are stored in SQLite as `pending_push`, then pushed to Todoist on the next sync pass.
 - `project` is written back by generating a Todoist label in `proj:<slug>` format and merging it with the other labels.
@@ -94,3 +97,5 @@ The note body is preserved during export and remains local-only.
 - verify creating a new note with valid task frontmatter creates a Todoist task and rewrites the note to the returned ID filename
 - verify deleting a tracked note deletes the Todoist task, removes the note index, and leaves a deleted tombstone in SQLite
 - verify parse/push/delete failures produce both sync events and warn/error logger output
+- verify completing a task in Todoist updates the exported note to `completed: true`
+- verify uncompleting a task in Todoist updates the exported note back to `completed: false`

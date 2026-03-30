@@ -34,6 +34,28 @@ interface TodoistTaskResponse {
   } | null;
 }
 
+interface TodoistSyncItemResponse {
+  id: string;
+  content: string;
+  priority: number;
+  project_id?: string | null;
+  section_id?: string | null;
+  parent_id?: string | null;
+  child_order?: number | null;
+  added_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+  checked?: boolean;
+  is_deleted?: boolean;
+  labels?: string[] | null;
+  due?: {
+    date?: string;
+    datetime?: string;
+    string?: string;
+    is_recurring?: boolean;
+  } | null;
+}
+
 interface TodoistProjectResponse {
   id: string;
   name: string;
@@ -55,6 +77,12 @@ interface TodoistCompletedTaskResponse {
   priority: number;
   project_id?: string | null;
   completed_at: string;
+}
+
+interface TodoistSyncResponse {
+  items?: TodoistSyncItemResponse[];
+  sync_token: string;
+  full_sync?: boolean;
 }
 
 export class TodoistClient {
@@ -199,6 +227,49 @@ export class TodoistClient {
         ),
       )
       .sort((left, right) => left.title.localeCompare(right.title));
+  }
+
+  async syncObsidianTasks(syncToken?: string | null): Promise<{
+    tasks: TodoistTaskRecord[];
+    nextSyncToken: string;
+    fullSync: boolean;
+  }> {
+    const token = await this.requireToken();
+    const body = new URLSearchParams();
+    body.set('sync_token', syncToken && syncToken.length > 0 ? syncToken : '*');
+    body.set('resource_types', JSON.stringify(['items']));
+
+    const response = await fetch(`${TODOIST_API_BASE_URL}/sync`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Todoist sync fetch failed: ${response.status} ${text}`);
+    }
+
+    const payload = (await response.json()) as TodoistSyncResponse;
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return {
+      tasks: (payload.items ?? [])
+        .map((task) =>
+          mapSyncTaskRecord(
+            task,
+            this.config.timezone,
+            task.project_id ? projectNames.get(task.project_id) : undefined,
+          ),
+        )
+        .sort((left, right) => left.title.localeCompare(right.title)),
+      nextSyncToken: payload.sync_token,
+      fullSync: payload.full_sync ?? false,
+    };
   }
 
   async createTask(input: TaskCreateInput): Promise<TodoistTaskRecord> {
@@ -713,6 +784,56 @@ function mapActiveTaskRecord(
     labels: task.labels ?? undefined,
     url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
     taskStatus: 'active',
+  };
+}
+
+function mapSyncTaskRecord(
+  task: TodoistSyncItemResponse,
+  timezone: string,
+  projectName?: string,
+): TodoistTaskRecord {
+  const dueLabel = task.due?.datetime
+    ? `Due at ${formatLocalTime(new Date(task.due.datetime), timezone)}`
+    : task.due?.date
+      ? `Due ${task.due.date}`
+      : undefined;
+
+  const dueDate = task.due?.datetime
+    ? getLocalDateParts(new Date(task.due.datetime), timezone).date
+    : task.due?.date;
+
+  const taskStatus = task.is_deleted
+    ? 'deleted'
+    : task.checked
+      ? 'completed'
+      : 'active';
+
+  return {
+    id: task.id,
+    title: task.content,
+    normalizedTitle: normalizeTaskTitle(task.content),
+    priority: task.priority,
+    recurring: task.due?.is_recurring ?? false,
+    projectId: task.project_id ?? undefined,
+    projectName,
+    sectionId: task.section_id ?? undefined,
+    parentId: task.parent_id ?? undefined,
+    orderIndex: task.child_order ?? undefined,
+    createdAtUtc: task.added_at ? new Date(task.added_at).toISOString() : undefined,
+    updatedAtUtc: task.updated_at
+      ? new Date(task.updated_at).toISOString()
+      : task.completed_at
+        ? new Date(task.completed_at).toISOString()
+        : task.added_at
+          ? new Date(task.added_at).toISOString()
+          : undefined,
+    dueLabel,
+    dueDate,
+    dueDateTimeUtc: task.due?.datetime ? new Date(task.due.datetime).toISOString() : undefined,
+    dueString: task.due?.string ?? undefined,
+    labels: task.labels ?? undefined,
+    url: `https://app.todoist.com/app/task/${task.id}`,
+    taskStatus,
   };
 }
 

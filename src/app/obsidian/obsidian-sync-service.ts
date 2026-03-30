@@ -37,11 +37,43 @@ export class ObsidianSyncService {
     const startedAt = Date.now();
 
     try {
-      const tasks = await this.todoistClient.getAllActiveTaskRecords();
+      const syncState = await this.syncStateRepository.getState();
+      const inboundSync = await this.todoistClient.syncObsidianTasks(syncState?.lastIncrementalCursor ?? null);
+      const tasks = inboundSync.tasks;
+      let completedTaskCount = 0;
+      let uncompletedTaskCount = 0;
 
       for (const task of tasks) {
+        const existingTask = await this.taskRepository.getByTaskId(task.id);
+
+        if (task.taskStatus === 'completed' && existingTask?.taskStatus !== 'completed') {
+          completedTaskCount += 1;
+          await this.syncEventRepository.insert({
+            eventType: 'todoist_completion_detected',
+            source: 'todoist',
+            todoistTaskId: task.id,
+            payloadSummary: JSON.stringify({ title: task.title }),
+            result: 'completed',
+          });
+        }
+
+        if (task.taskStatus === 'active' && existingTask?.taskStatus === 'completed') {
+          uncompletedTaskCount += 1;
+          await this.syncEventRepository.insert({
+            eventType: 'todoist_uncompletion_detected',
+            source: 'todoist',
+            todoistTaskId: task.id,
+            payloadSummary: JSON.stringify({ title: task.title }),
+            result: 'active',
+          });
+        }
+
         await this.taskRepository.upsertFromTodoist(task);
       }
+
+      await this.syncStateRepository.updateIncrementalSync({
+        nextSyncToken: inboundSync.nextSyncToken,
+      });
 
       const scanResult = await this.localScanService.scan();
       const deleteResult = await this.pendingDeleteService.deletePendingTasks();
@@ -81,6 +113,8 @@ export class ObsidianSyncService {
           createdTaskCount: scanResult.createdTaskCount,
           detectedDeleteCount: scanResult.detectedDeleteCount,
           deletedTaskCount: deleteResult.deletedTaskCount,
+          completedTaskCount,
+          uncompletedTaskCount,
           conflictCount: scanResult.conflictCount,
           errorCount: scanResult.errorCount + deleteResult.deleteErrorCount,
           pushedTaskCount: pushResult.pushedTaskCount,
@@ -96,6 +130,8 @@ export class ObsidianSyncService {
         createdTaskCount: scanResult.createdTaskCount,
         detectedDeleteCount: scanResult.detectedDeleteCount,
         deletedTaskCount: deleteResult.deletedTaskCount,
+        completedTaskCount,
+        uncompletedTaskCount,
         conflictCount: scanResult.conflictCount,
         errorCount: scanResult.errorCount + deleteResult.deleteErrorCount,
         pushedTaskCount: pushResult.pushedTaskCount,

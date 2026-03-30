@@ -81,7 +81,7 @@ bun run sync:obsidian
 
 The repo now includes a first-pass Obsidian exporter:
 
-- imports active Todoist tasks into dedicated sync tables
+- imports Todoist task state through Todoist incremental sync
 - writes one Markdown file per task into the configured `OBSIDIAN_TASKS_PATH` using the Todoist ID as the filename
 - stores native Todoist project metadata separately from the Obsidian `project` field
 - derives `project` from a Todoist label in `proj:<slug>` format
@@ -91,6 +91,7 @@ This currently supports Milestone 3 writeback for existing synced notes:
 
 - Todoist remains the source of truth for normalized exported state
 - writable note edits are detected locally and pushed back to Todoist on the next sync pass
+- Todoist completion and uncompletion now sync back into tracked Obsidian notes
 - deleting a synced note locally deletes it in Todoist and keeps a deleted tombstone in SQLite
 - some broader task completion/delete reconciliation edge cases are still not finished end to end
 - local creation of brand-new Obsidian task notes in the tasks folder is supported

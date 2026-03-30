@@ -34,7 +34,7 @@ export class ObsidianLocalScanService {
     for (const noteIndex of noteIndexes) {
       const task = await this.taskRepository.getByTaskId(noteIndex.todoistTaskId);
 
-      if (!task || task.taskStatus !== 'active') {
+      if (!task || task.taskStatus === 'deleted') {
         continue;
       }
 

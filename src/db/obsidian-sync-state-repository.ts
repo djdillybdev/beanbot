@@ -8,6 +8,12 @@ const DEFAULT_SYNC_KEY = 'default';
 export class ObsidianSyncStateRepository {
   constructor(private readonly db: Database) {}
 
+  async getState() {
+    return this.db.query.obsidianSyncState.findFirst({
+      where: eq(obsidianSyncState.syncKey, DEFAULT_SYNC_KEY),
+    });
+  }
+
   async touchFullSync() {
     const now = new Date().toISOString();
 
@@ -41,6 +47,27 @@ export class ObsidianSyncStateRepository {
         target: obsidianSyncState.syncKey,
         set: {
           lastVaultScanAtUtc: now,
+          updatedAtUtc: now,
+        },
+      });
+  }
+
+  async updateIncrementalSync(input: { nextSyncToken: string }) {
+    const now = new Date().toISOString();
+
+    await this.db
+      .insert(obsidianSyncState)
+      .values({
+        syncKey: DEFAULT_SYNC_KEY,
+        lastIncrementalCursor: input.nextSyncToken,
+        lastIncrementalSyncAtUtc: now,
+        updatedAtUtc: now,
+      })
+      .onConflictDoUpdate({
+        target: obsidianSyncState.syncKey,
+        set: {
+          lastIncrementalCursor: input.nextSyncToken,
+          lastIncrementalSyncAtUtc: now,
           updatedAtUtc: now,
         },
       });
