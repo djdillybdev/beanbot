@@ -168,3 +168,98 @@ export const periodStatusMessage = sqliteTable('period_status_message', {
   primary: uniqueIndex('period_status_message_type_period_idx').on(table.statusType, table.periodKey),
   channelTypeIdx: index('period_status_message_channel_type_idx').on(table.channelId, table.statusType),
 }));
+
+export const obsidianTask = sqliteTable(
+  'obsidian_task',
+  {
+    todoistTaskId: text('todoist_task_id').primaryKey(),
+    content: text('content').notNull(),
+    completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+    priorityApi: integer('priority_api').notNull().default(1),
+    project: text('project'),
+    todoistProjectId: text('todoist_project_id'),
+    todoistProjectName: text('todoist_project_name'),
+    sectionId: text('section_id'),
+    sectionName: text('section_name'),
+    dueDate: text('due_date'),
+    dueDatetimeUtc: text('due_datetime_utc'),
+    recurring: integer('recurring', { mode: 'boolean' }).notNull().default(false),
+    parentId: text('parent_id'),
+    orderIndex: integer('order_index'),
+    todoistUrl: text('todoist_url').notNull(),
+    createdAtUtc: text('created_at_utc'),
+    sourceUpdatedAtUtc: text('source_updated_at_utc'),
+    dbUpdatedAtUtc: text('db_updated_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    lastSyncedAtUtc: text('last_synced_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    syncStatus: text('sync_status').notNull().default('synced'),
+    sourceOfLastChange: text('source_of_last_change').notNull().default('todoist'),
+    contentHash: text('content_hash'),
+    noteBody: text('note_body'),
+    taskStatus: text('task_status').notNull().default('active'),
+  },
+  (table) => ({
+    statusUpdatedIdx: index('obsidian_task_status_updated_idx').on(table.taskStatus, table.dbUpdatedAtUtc),
+    syncStatusIdx: index('obsidian_task_sync_status_idx').on(table.syncStatus),
+  }),
+);
+
+export const obsidianTaskLabel = sqliteTable(
+  'obsidian_task_label',
+  {
+    todoistTaskId: text('todoist_task_id').notNull(),
+    labelName: text('label_name').notNull(),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    primary: uniqueIndex('obsidian_task_label_task_label_idx').on(table.todoistTaskId, table.labelName),
+    labelIdx: index('obsidian_task_label_name_idx').on(table.labelName),
+  }),
+);
+
+export const obsidianNoteIndex = sqliteTable('obsidian_note_index', {
+  todoistTaskId: text('todoist_task_id').primaryKey(),
+  filePath: text('file_path').notNull(),
+  contentHash: text('content_hash').notNull(),
+  metadataHash: text('metadata_hash').notNull(),
+  lastFileMtimeUtc: text('last_file_mtime_utc'),
+  lastImportedAtUtc: text('last_imported_at_utc'),
+  lastExportedAtUtc: text('last_exported_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const obsidianSyncState = sqliteTable('obsidian_sync_state', {
+  syncKey: text('sync_key').primaryKey(),
+  lastFullSyncAtUtc: text('last_full_sync_at_utc'),
+  lastIncrementalSyncAtUtc: text('last_incremental_sync_at_utc'),
+  lastIncrementalCursor: text('last_incremental_cursor'),
+  lastVaultScanAtUtc: text('last_vault_scan_at_utc'),
+  updatedAtUtc: text('updated_at_utc')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const obsidianSyncEvent = sqliteTable(
+  'obsidian_sync_event',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    eventType: text('event_type').notNull(),
+    source: text('source').notNull(),
+    todoistTaskId: text('todoist_task_id'),
+    payloadSummary: text('payload_summary'),
+    result: text('result'),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    sourceCreatedIdx: index('obsidian_sync_event_source_created_idx').on(table.source, table.createdAtUtc),
+    taskCreatedIdx: index('obsidian_sync_event_task_created_idx').on(table.todoistTaskId, table.createdAtUtc),
+  }),
+);

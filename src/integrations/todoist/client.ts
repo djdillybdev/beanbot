@@ -19,12 +19,18 @@ interface TodoistTaskResponse {
   content: string;
   priority: number;
   project_id?: string | null;
+  section_id?: string | null;
+  parent_id?: string | null;
+  child_order?: number | null;
+  order?: number | null;
+  created_at?: string | null;
   labels?: string[] | null;
   url?: string;
   due?: {
     date?: string;
     datetime?: string;
     string?: string;
+    is_recurring?: boolean;
   } | null;
 }
 
@@ -39,6 +45,8 @@ interface TodoistTaskUpdatePayload {
   labels?: string[];
   priority?: 1 | 2 | 3 | 4;
   due_string?: string | null;
+  due_date?: string | null;
+  due_datetime?: string | null;
 }
 
 interface TodoistCompletedTaskResponse {
@@ -176,6 +184,23 @@ export class TodoistClient {
     };
   }
 
+  async getAllActiveTaskRecords(): Promise<TodoistTaskRecord[]> {
+    const token = await this.requireToken();
+    const tasks = await this.fetchActiveTasks(token);
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return tasks
+      .map((task) =>
+        mapActiveTaskRecord(
+          task,
+          this.config.timezone,
+          task.project_id ? projectNames.get(task.project_id) : undefined,
+        ),
+      )
+      .sort((left, right) => left.title.localeCompare(right.title));
+  }
+
   async createTask(input: TaskCreateInput): Promise<TodoistTaskRecord> {
     const token = await this.requireToken();
     const payload: Record<string, unknown> = {
@@ -194,7 +219,11 @@ export class TodoistClient {
       payload.labels = input.labels;
     }
 
-    if (input.due) {
+    if (input.dueDatetime) {
+      payload.due_datetime = input.dueDatetime;
+    } else if (input.dueDate) {
+      payload.due_date = input.dueDate;
+    } else if (input.due) {
       payload.due_string = input.due;
     }
 
@@ -423,6 +452,40 @@ export class TodoistClient {
     return results;
   }
 
+  private async fetchActiveTasks(token: StoredOAuthToken) {
+    const results: TodoistTaskResponse[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const url = new URL(`${TODOIST_API_BASE_URL}/tasks`);
+      url.searchParams.set('limit', '200');
+      if (cursor) {
+        url.searchParams.set('cursor', cursor);
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Todoist active tasks fetch failed: ${response.status} ${text}`);
+      }
+
+      const payload = (await response.json()) as {
+        results: TodoistTaskResponse[];
+        next_cursor?: string | null;
+      };
+
+      results.push(...payload.results);
+      cursor = payload.next_cursor ?? null;
+    } while (cursor);
+
+    return results;
+  }
+
   private async fetchProjects(token: StoredOAuthToken) {
     const projects: TodoistProjectResponse[] = [];
     let cursor: string | null = null;
@@ -635,8 +698,14 @@ function mapActiveTaskRecord(
     title: task.content,
     normalizedTitle: normalizeTaskTitle(task.content),
     priority: task.priority,
+    recurring: task.due?.is_recurring ?? false,
     projectId: task.project_id ?? undefined,
     projectName,
+    sectionId: task.section_id ?? undefined,
+    parentId: task.parent_id ?? undefined,
+    orderIndex: task.child_order ?? task.order ?? undefined,
+    createdAtUtc: task.created_at ? new Date(task.created_at).toISOString() : undefined,
+    updatedAtUtc: task.created_at ? new Date(task.created_at).toISOString() : undefined,
     dueLabel,
     dueDate,
     dueDateTimeUtc: task.due?.datetime ? new Date(task.due.datetime).toISOString() : undefined,

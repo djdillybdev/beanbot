@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "sync:obsidian": "bun run src/scripts/obsidian-sync.ts",
     "test": "bun test",
     "register:commands": "bun run src/scripts/register-commands.ts",
     "db:generate": "drizzle-kit generate",

@@ -5,8 +5,14 @@ export interface TodoistTaskRecord {
   title: string;
   normalizedTitle: string;
   priority: number;
+  recurring?: boolean;
   projectId?: string;
   projectName?: string;
+  sectionId?: string;
+  parentId?: string;
+  orderIndex?: number;
+  createdAtUtc?: string;
+  updatedAtUtc?: string;
   dueLabel?: string;
   dueDate?: string;
   dueDateTimeUtc?: string;
@@ -33,6 +39,8 @@ export interface TaskAutocompleteSuggestion {
 export interface TaskCreateInput {
   content: string;
   due?: string;
+  dueDate?: string;
+  dueDatetime?: string;
   priority?: 1 | 2 | 3 | 4;
   projectId?: string;
   labels?: string[];

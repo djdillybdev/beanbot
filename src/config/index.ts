@@ -8,6 +8,9 @@ import type { LogLevel } from '../logging/logger';
 export interface AppConfig {
   env: AppEnv;
   databasePath: string;
+  obsidianVaultPath?: string;
+  obsidianTasksPath: string;
+  obsidianSyncPollIntervalSeconds: number;
   host: string;
   port: number;
   publicBaseUrl: string;
@@ -33,6 +36,9 @@ export function createConfig(): AppConfig {
   return {
     env,
     databasePath,
+    obsidianVaultPath: env.OBSIDIAN_VAULT_PATH ? resolve(env.OBSIDIAN_VAULT_PATH) : undefined,
+    obsidianTasksPath: env.OBSIDIAN_TASKS_PATH,
+    obsidianSyncPollIntervalSeconds: env.OBSIDIAN_SYNC_POLL_INTERVAL_SECONDS,
     host: env.HOST,
     port: env.PORT,
     publicBaseUrl: env.PUBLIC_BASE_URL ?? `http://${env.HOST}:${env.PORT}`,

@@ -55,6 +55,9 @@ Copy `.env.example` to `.env` and fill in:
 - `TODOIST_CLIENT_ID`
 - `TODOIST_CLIENT_SECRET`
 - `TODOIST_REDIRECT_URI`
+- `OBSIDIAN_VAULT_PATH` (optional, for Obsidian sync sidecar)
+- `OBSIDIAN_TASKS_PATH` (default `Tasks/todoist`)
+- `OBSIDIAN_SYNC_POLL_INTERVAL_SECONDS` (default `300`)
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
@@ -67,9 +70,30 @@ bun install
 bun run db:migrate
 bun run register:commands
 bun run dev
+bun run sync:obsidian
 ```
 
 `bun run dev` also applies migrations and registers guild commands at startup before logging the bot in.
+
+`bun run sync:obsidian` runs the Todoist -> SQLite -> Obsidian export sidecar. It requires `OBSIDIAN_VAULT_PATH` and an already connected Todoist account.
+
+## Obsidian sync
+
+The repo now includes a first-pass Obsidian exporter:
+
+- imports active Todoist tasks into dedicated sync tables
+- writes one Markdown file per task into the configured `OBSIDIAN_TASKS_PATH` using the Todoist ID as the filename
+- stores native Todoist project metadata separately from the Obsidian `project` field
+- derives `project` from a Todoist label in `proj:<slug>` format
+- preserves note body text across export passes
+
+This currently supports Milestone 3 writeback for existing synced notes:
+
+- Todoist remains the source of truth for normalized exported state
+- writable note edits are detected locally and pushed back to Todoist on the next sync pass
+- deleting a synced note locally deletes it in Todoist and keeps a deleted tombstone in SQLite
+- some broader task completion/delete reconciliation edge cases are still not finished end to end
+- local creation of brand-new Obsidian task notes in the tasks folder is supported
 
 ## Current command surface
 
