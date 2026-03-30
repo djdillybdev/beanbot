@@ -1,5 +1,5 @@
 import type { AppConfig } from '../../config';
-import type { CompletedTaskSummary, DailyTaskSummary } from '../../domain/daily-review';
+import type { CompletedTaskSummary, DailyTaskSummary, UndatedTaskSummary } from '../../domain/daily-review';
 import type {
   InboxTaskCaptureResult,
   TodoistCompletedTaskRecord,
@@ -153,6 +153,27 @@ export class TodoistClient {
         ),
       )
       .filter((task): task is TodoistTaskRecord => task !== null);
+  }
+
+  async getUndatedTasks(): Promise<{ tasks: UndatedTaskSummary[] }> {
+    const token = await this.requireToken();
+    const tasks = await this.fetchFilteredTasks(token, 'no date');
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return {
+      tasks: tasks
+        .filter((task) => !task.due)
+        .map((task) => ({
+          id: task.id,
+          title: task.content,
+          priority: task.priority,
+          projectId: task.project_id ?? undefined,
+          projectName: task.project_id ? projectNames.get(task.project_id) : undefined,
+          labels: task.labels ?? undefined,
+          url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
+        })),
+    };
   }
 
   async createTask(input: TaskCreateInput): Promise<TodoistTaskRecord> {

@@ -11,6 +11,16 @@ export interface DailyTaskSummary {
   url: string;
 }
 
+export interface UndatedTaskSummary {
+  id: string;
+  title: string;
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  labels?: string[];
+  url: string;
+}
+
 export interface CompletedTaskSummary {
   id: string;
   title: string;
@@ -87,4 +97,9 @@ export interface HabitReviewResult {
     remainingTodayCount: number;
     longestCurrentStreak: number;
   };
+}
+
+export interface UndatedTaskReviewResult {
+  tasks: UndatedTaskSummary[];
+  todoistStatus: ProviderStatus;
 }

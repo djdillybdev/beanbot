@@ -11,6 +11,7 @@ import { startTodayStatusRefreshScheduler } from './jobs/today-status-refresh-sc
 import { registerGuildCommands } from './bot/register-commands';
 import { ActionLogRepository } from './db/action-log-repository';
 import { CalendarEventMapRepository } from './db/calendar-event-map-repository';
+import { HabitCompletionHistoryRepository } from './db/habit-completion-history-repository';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
 import { PeriodStatusMessageRepository } from './db/period-status-message-repository';
@@ -28,6 +29,7 @@ import {
   buildHabitsStatusEmbeds,
   buildMonthStatusEmbeds,
   buildTodayStatusEmbeds,
+  buildUndatedStatusEmbeds,
   buildUpcomingStatusEmbeds,
   buildWeekStatusEmbeds,
 } from './bot/renderers/today';
@@ -35,6 +37,7 @@ import {
   buildHabitStatusSnapshot,
   buildPeriodStatusSnapshot,
   buildTodayStatusSnapshot,
+  buildUndatedStatusSnapshot,
   buildUpcomingStatusSnapshot,
 } from './app/today/status-snapshots';
 import { LiveStatusService } from './app/today/today-status-service';
@@ -60,6 +63,7 @@ async function main() {
   const tokenRepository = new OAuthTokenRepository(db);
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
+  const habitCompletionHistoryRepository = new HabitCompletionHistoryRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
   const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
   const eventDraftStore = new EventDraftStore();
@@ -82,9 +86,11 @@ async function main() {
     logger.child({ subsystem: 'reminders' }),
   );
   const taskService = new TaskService(
+    config.timezone,
     todoistClient,
     todoistTaskMapRepository,
     actionLogRepository,
+    habitCompletionHistoryRepository,
     reminderService,
     todayStatusRefreshNotifier,
     logger.child({ subsystem: 'task' }),
@@ -103,6 +109,7 @@ async function main() {
     todoistClient,
     googleCalendarClient,
     todoistTaskMapRepository,
+    habitCompletionHistoryRepository,
     taskService,
     eventService,
     logger.child({ subsystem: 'today-review' }),
@@ -187,6 +194,19 @@ async function main() {
     buildEmbeds: (periodKey, review, updatedAt) =>
       buildHabitsStatusEmbeds(config, periodKey, review, updatedAt),
   });
+  const undatedStatusService = new LiveStatusService({
+    client: discord.client,
+    channelId: config.inboxChannelId,
+    channelEnvName: 'INBOX_CHANNEL_ID',
+    statusType: 'undated',
+    repository: periodStatusMessageRepository,
+    logger: logger.child({ subsystem: 'undated-status' }),
+    getPeriodKey: () => 'undated',
+    getReview: () => todayReviewService.getUndatedTaskReview(),
+    buildSnapshot: buildUndatedStatusSnapshot,
+    buildEmbeds: (periodKey, review, updatedAt) =>
+      buildUndatedStatusEmbeds(config, periodKey, review, updatedAt),
+  });
   const upcomingStatusService = new LiveStatusService({
     client: discord.client,
     channelId: config.upcomingChannelId,
@@ -207,12 +227,14 @@ async function main() {
     await monthStatusService.refreshCurrentStatus(reason);
     await habitsStatusService.refreshCurrentStatus(reason);
     if (reason.startsWith('task.')) {
+      await undatedStatusService.refreshCurrentStatus(reason);
       await upcomingStatusService.refreshCurrentStatus(reason);
     }
   });
   await weekStatusService.refreshCurrentStatus('startup');
   await monthStatusService.refreshCurrentStatus('startup');
   await habitsStatusService.refreshCurrentStatus('startup');
+  await undatedStatusService.refreshCurrentStatus('startup');
   await upcomingStatusService.refreshCurrentStatus('startup');
   if (config.logsChannelId) {
     await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
@@ -244,6 +266,11 @@ async function main() {
     logger.child({ subsystem: 'habits-status-refresh' }),
     'habits',
   );
+  const undatedStatusRefreshScheduler = startTodayStatusRefreshScheduler(
+    undatedStatusService,
+    logger.child({ subsystem: 'undated-status-refresh' }),
+    'undated',
+  );
   const upcomingStatusRefreshScheduler = startTodayStatusRefreshScheduler(
     upcomingStatusService,
     logger.child({ subsystem: 'upcoming-status-refresh' }),
@@ -262,6 +289,7 @@ async function main() {
     weekStatusRefreshScheduler.stop();
     monthStatusRefreshScheduler.stop();
     habitsStatusRefreshScheduler.stop();
+    undatedStatusRefreshScheduler.stop();
     upcomingStatusRefreshScheduler.stop();
     reminderScheduler.stop();
     httpServer.close();

@@ -79,6 +79,7 @@ bun run dev
 - `/week` shows overdue work plus the next 7 days of tasks and events
 - `/month` shows overdue work plus the next 31 days of tasks and events
 - `/habits` shows today’s habit tasks, completed habits, and streaks
+- `/undated` shows active non-habit Todoist tasks with no due date
 - `/task add` creates a Todoist task with explicit structured fields
 - `/task done` completes a recently seen task by exact title
 - `/event add` opens a guided Google Calendar event creation flow
@@ -92,6 +93,7 @@ bun run dev
 - every non-bot message in `#inbox` is sent to Todoist quick add as a new task
 - successful captures get a checkmark reaction
 - the bot replies only when capture fails
+- the channel also keeps one pinned live undated-task view for Inbox and project tasks without due dates
 
 ## Logging
 
@@ -124,6 +126,7 @@ The bot also keeps one live daily habit message in `HABITS_CHANNEL_ID`:
 
 - tasks labeled `habit` are excluded from `/today`, `/week`, `/month`, and `#upcoming`
 - `#habits` shows overdue habits, habits left today, completed habits today, and streak counts from local bot-observed history
+- same-day habit completions done directly in Todoist are counted when the bot already knows that Todoist task ID as a habit
 - the message is created on startup, refreshed every 5 minutes, and updated immediately after bot-driven task changes
 
 The bot also keeps one rolling message in `UPCOMING_CHANNEL_ID`:
@@ -131,6 +134,13 @@ The bot also keeps one rolling message in `UPCOMING_CHANNEL_ID`:
 - task-only view for the next 14 days
 - grouped by day
 - no message history; the same message is edited in place
+- refreshed every 5 minutes and immediately after bot-driven task changes
+
+The bot also keeps one live undated-task message in `INBOX_CHANNEL_ID`:
+
+- shows active non-habit Todoist tasks with no due date
+- lists all undated tasks in one view with the Todoist project shown inline on each task line
+- pinned in `#inbox`
 - refreshed every 5 minutes and immediately after bot-driven task changes
 
 ## Reminders

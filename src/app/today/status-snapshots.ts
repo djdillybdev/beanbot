@@ -2,6 +2,7 @@ import type {
   DailyReviewResult,
   HabitReviewResult,
   PeriodReviewResult,
+  UndatedTaskReviewResult,
   UpcomingTaskReviewResult,
 } from '../../domain/daily-review';
 
@@ -95,6 +96,14 @@ export function buildHabitStatusSnapshot(periodKey: string, review: HabitReviewR
       currentStreak: streak.currentStreak,
       completedToday: streak.completedToday,
     })),
+    todoistStatusMessage: review.todoistStatus.message ?? null,
+  });
+}
+
+export function buildUndatedStatusSnapshot(periodKey: string, review: UndatedTaskReviewResult) {
+  return JSON.stringify({
+    periodKey,
+    taskIds: review.tasks.map((task) => task.id),
     todoistStatusMessage: review.todoistStatus.message ?? null,
   });
 }

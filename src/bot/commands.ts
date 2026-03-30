@@ -20,6 +20,9 @@ export const slashCommands = [
     .setName('habits')
     .setDescription('Show today’s habit tasks, completions, and streaks.'),
   new SlashCommandBuilder()
+    .setName('undated')
+    .setDescription('Show active non-habit Todoist tasks with no due date.'),
+  new SlashCommandBuilder()
     .setName('event')
     .setDescription('Create, update, or delete Google Calendar events.')
     .addSubcommand((subcommand) =>

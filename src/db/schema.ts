@@ -92,6 +92,30 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const habitCompletionHistory = sqliteTable(
+  'habit_completion_history',
+  {
+    dedupeKey: text('dedupe_key').primaryKey(),
+    todoistTaskId: text('todoist_task_id').notNull(),
+    normalizedTitle: text('normalized_title').notNull(),
+    title: text('title').notNull(),
+    completedAtUtc: text('completed_at_utc').notNull(),
+    completedLocalDate: text('completed_local_date').notNull(),
+    source: text('source').notNull(),
+    priority: integer('priority').notNull().default(1),
+    projectId: text('project_id'),
+    projectName: text('project_name'),
+    url: text('url').notNull(),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    taskIdx: index('habit_completion_history_task_idx').on(table.todoistTaskId, table.completedAtUtc),
+    localDateIdx: index('habit_completion_history_local_date_idx').on(table.completedLocalDate, table.completedAtUtc),
+  }),
+);
+
 export const calendarEventMap = sqliteTable('calendar_event_map', {
   googleEventId: text('google_event_id').primaryKey(),
   calendarId: text('calendar_id').notNull(),

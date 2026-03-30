@@ -6,6 +6,7 @@ import type {
   DailyTaskSummary,
   ProviderStatus,
   ReviewDayGroup,
+  UndatedTaskSummary,
 } from '../../domain/daily-review';
 import type { GoogleCalendarEventRecord } from '../../domain/event';
 import type { TodoistTaskRecord } from '../../domain/task';
@@ -22,6 +23,10 @@ export function formatTaskLine(task: Pick<DailyTaskSummary, 'title' | 'dueLabel'
 
 export function formatTaskRecordLine(task: TodoistTaskRecord): string {
   return `${buildLinkedTitle(task.title, task.url)}${formatSecondaryText(task.dueLabel)}`;
+}
+
+export function formatUndatedTaskLine(task: Pick<UndatedTaskSummary, 'title' | 'projectName' | 'url'>): string {
+  return `${buildLinkedTitle(task.title, task.url)} - ${escapeMarkdown(task.projectName ?? 'Inbox')}`;
 }
 
 export function formatCompletedTaskLine(
@@ -62,6 +67,14 @@ export function buildEventField(
   emptyState = 'None.',
 ): APIEmbedField {
   return buildListField(label, events.map(formatEventLine), emptyState);
+}
+
+export function buildUndatedTaskField(
+  label: string,
+  tasks: Array<Pick<UndatedTaskSummary, 'title' | 'projectName' | 'url'>>,
+  emptyState = 'None.',
+): APIEmbedField {
+  return buildListField(label, tasks.map(formatUndatedTaskLine), emptyState);
 }
 
 export function buildProviderStatusField(

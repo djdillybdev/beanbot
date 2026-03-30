@@ -7,11 +7,14 @@ import type {
   PeriodReviewResult,
   ProviderStatus,
   ReviewDayGroup,
+  UndatedTaskReviewResult,
   UpcomingTaskReviewResult,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
+import { HabitCompletionHistoryRepository } from '../../db/habit-completion-history-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import { EventService } from '../events/event-service';
+import { buildExternalHabitCompletionRecords } from '../habits/habit-completion-sync';
 import {
   buildHabitReviewResult,
   mapCompletedHabitEntry,
@@ -19,6 +22,7 @@ import {
   splitTasksByHabitLabel,
 } from '../habits/habit-review';
 import { TaskService } from '../tasks/task-service';
+import { buildUndatedTaskReview } from '../undated/undated-review';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
 import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
@@ -36,6 +40,7 @@ export class TodayReviewService {
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
     private readonly taskMapRepository: TodoistTaskMapRepository,
+    private readonly habitCompletionHistoryRepository: HabitCompletionHistoryRepository,
     private readonly taskService?: TaskService,
     private readonly eventService?: EventService,
     private readonly logger?: Logger,
@@ -179,10 +184,12 @@ export class TodayReviewService {
       return { overdueTasks: [], dueTodayTasks: [] };
     });
 
+    await this.syncExternalHabitCompletionsForToday(now, todoistStatus);
+
     const overdueHabits = splitTasksByHabitLabel(taskResult.overdueTasks).habits;
     const dueTodayHabits = splitTasksByHabitLabel(taskResult.dueTodayTasks).habits;
     const completedHabits = await this.getCompletedHabitsForDate(now);
-    const history = await this.taskMapRepository.listByLabel('habit', ['completed']);
+    const history = await this.habitCompletionHistoryRepository.listAll();
 
     await this.refreshTaskCache([...taskResult.overdueTasks, ...taskResult.dueTodayTasks], todoistStatus.connected);
 
@@ -193,11 +200,11 @@ export class TodayReviewService {
       dueTodayHabits,
       completedHabits,
       history.map((task) => ({
-        id: task.id,
+        id: task.todoistTaskId,
         title: task.title,
         normalizedTitle: task.normalizedTitle,
-        labels: task.labels,
-        completedAtUtc: task.updatedAtUtc,
+        labels: ['habit'],
+        completedAtUtc: task.completedAtUtc,
         url: task.url,
         priority: task.priority,
         projectId: task.projectId,
@@ -205,6 +212,21 @@ export class TodayReviewService {
       })),
       todoistStatus,
     );
+  }
+
+  async getUndatedTaskReview(): Promise<UndatedTaskReviewResult> {
+    this.logger?.debug('Building undated task review');
+    const todoistStatus = await this.buildTodoistStatus();
+    const undatedResult = await (todoistStatus.connected
+      ? this.todoistClient.getUndatedTasks()
+      : Promise.resolve({ tasks: [] })
+    ).catch((error) => {
+      todoistStatus.connected = false;
+      todoistStatus.message = error instanceof Error ? error.message : 'Task fetch failed.';
+      return { tasks: [] };
+    });
+
+    return buildUndatedTaskReview(undatedResult.tasks, todoistStatus);
   }
 
   private async getPeriodReview(days: number): Promise<PeriodReviewResult> {
@@ -340,18 +362,17 @@ export class TodayReviewService {
 
   private async getCompletedHabitsForDate(now: Date) {
     const targetDate = getLocalDateParts(now, this.config.timezone).date;
-    const completedHabits = await this.taskMapRepository.listByLabel('habit', ['completed']);
+    const completedHabits = await this.habitCompletionHistoryRepository.listByLocalDate(targetDate);
 
     return completedHabits
-      .filter((task) => getLocalDateParts(new Date(task.updatedAtUtc), this.config.timezone).date === targetDate)
       .map((task) =>
         mapCompletedHabitEntry(
           {
-            id: task.id,
+            id: task.todoistTaskId,
             title: task.title,
             normalizedTitle: task.normalizedTitle,
-            labels: task.labels,
-            completedAtUtc: task.updatedAtUtc,
+            labels: ['habit'],
+            completedAtUtc: task.completedAtUtc,
             url: task.url,
             priority: task.priority,
             projectId: task.projectId,
@@ -361,6 +382,30 @@ export class TodayReviewService {
         ),
       )
       .sort((left, right) => left.completedSortKey.localeCompare(right.completedSortKey));
+  }
+
+  private async syncExternalHabitCompletionsForToday(now: Date, todoistStatus: ProviderStatus) {
+    if (!todoistStatus.connected) {
+      return;
+    }
+
+    try {
+      const completedTasks = await this.todoistClient.getCompletedTasksForToday(now);
+      const cachedTasks = await this.taskMapRepository.findByIds(completedTasks.map((task) => task.id));
+      const records = buildExternalHabitCompletionRecords(
+        completedTasks,
+        new Map(cachedTasks.map((task) => [task.id, task])),
+        this.config.timezone,
+      );
+
+      for (const record of records) {
+        await this.habitCompletionHistoryRepository.upsert(record);
+      }
+    } catch (error) {
+      this.logger?.warn('External habit completion sync failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async filterCompletedPlanningTasks(tasks: CompletedTaskSummary[]) {

@@ -71,6 +71,13 @@
       "when": 1775261400000,
       "tag": "0009_period_status_message_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775262000000,
+      "tag": "0010_habit_completion_history",
+      "breakpoints": true
     }
   ]
 }
