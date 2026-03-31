@@ -74,6 +74,16 @@ bun run dev
 
 `bun run dev` also applies migrations, registers guild commands at startup, and starts the integrated Obsidian sync runtime when `OBSIDIAN_VAULT_PATH` is configured.
 
+## Diagnostics
+
+- `GET /health` is the machine-oriented runtime diagnostics endpoint
+- `bun run admin:health` prints a local operator summary and supports `--json`
+- `bun run admin:obsidian:status` prints Obsidian sync diagnostics and supports `--json`
+- `bun run admin:cache:inspect` prints cache freshness diagnostics and supports `--json`
+- `bun run admin:obsidian:sync-once` runs one Obsidian sync pass with the current local config
+
+`/health` includes overall runtime status, per-subsystem state, migration health, provider connectivity, cache freshness, reminder summary, habit summary, and persisted Obsidian sync timestamps. The admin scripts are the human-facing diagnostics layer; `/health` is intended to stay stable for scripts and lightweight dashboards.
+
 ## Obsidian sync
 
 The repo now includes a first-pass Obsidian exporter:
@@ -91,12 +101,13 @@ This currently supports Milestone 3 writeback for existing synced notes:
 - writable note edits are detected locally and pushed back to Todoist on the next sync pass
 - Todoist completion and uncompletion now sync back into tracked Obsidian notes
 - deleting a synced note locally deletes it in Todoist and keeps a deleted tombstone in SQLite
-- some broader task completion/delete reconciliation edge cases are still not finished end to end
+- remote completion/delete reconciliation now prefers Todoist state and records explicit sync events
+- broader conflict tooling and operator-assisted recovery are still intentionally thin
 - local creation of brand-new Obsidian task notes in the tasks folder is supported
 
 ## Current command surface
 
-- `/ping` returns a basic health response
+- `/ping` returns a simple bot reachability response
 - `/help` shows the current command list, provider connect links, and intended channel layout
 - `/today` shows overdue Todoist tasks, tasks due today, and today’s Google Calendar events
 - `/week` shows overdue work plus the next 7 days of tasks and events

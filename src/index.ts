@@ -46,6 +46,7 @@ import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 import { HabitService } from './app/habits/habit-service';
 import { startObsidianSyncRuntime } from './app/obsidian/obsidian-sync-runner';
 import { ObsidianSyncStateRepository } from './db/obsidian-sync-state-repository';
+import { buildOverallRuntimeSummary } from './runtime/diagnostics';
 import { SubsystemHealthRegistry } from './runtime/subsystem-health';
 
 async function main() {
@@ -166,6 +167,7 @@ async function main() {
 
   const server = createServer({
     config,
+    migrationResult,
     tokenRepository,
     todoistTaskMapRepository,
     calendarEventMapRepository,
@@ -369,8 +371,12 @@ async function main() {
   );
   healthRegistry.markHealthy('reminder-scheduler', 'Reminder scheduler started.');
   healthRegistry.setStartupComplete();
+  const runtimeSummary = buildOverallRuntimeSummary(healthRegistry.getSnapshot());
   startupLogger.info('Startup sequence completed', {
-    overallStatus: healthRegistry.getSnapshot().status,
+    overallStatus: runtimeSummary.status,
+    degradedSubsystems: runtimeSummary.degradedSubsystems,
+    failedSubsystems: runtimeSummary.failedSubsystems,
+    disabledSubsystemCount: runtimeSummary.disabledSubsystemCount,
   });
 
   const shutdown = async (signal: string) => {

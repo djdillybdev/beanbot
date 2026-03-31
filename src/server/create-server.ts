@@ -1,6 +1,7 @@
 import express from 'express';
 
 import type { AppConfig } from '../config';
+import type { MigrationRunResult } from '../db/migrate';
 import { OAuthTokenRepository } from '../db/oauth-token-repository';
 import { CalendarEventMapRepository } from '../db/calendar-event-map-repository';
 import { HabitRepository } from '../db/habit-repository';
@@ -10,10 +11,20 @@ import { TodoistTaskMapRepository } from '../db/todoist-task-map-repository';
 import { GoogleCalendarOAuthService } from '../integrations/google-calendar/oauth';
 import { TodoistOAuthService } from '../integrations/todoist/oauth';
 import type { Logger } from '../logging/logger';
+import {
+  buildHabitDiagnostics,
+  buildMigrationRuntimeSummary,
+  buildObsidianDiagnostics,
+  buildOverallRuntimeSummary,
+  buildProviderStatus,
+  buildReminderDiagnostics,
+  enrichLatestUpdateSummary,
+} from '../runtime/diagnostics';
 import type { SubsystemHealthRegistry } from '../runtime/subsystem-health';
 
 interface CreateServerDependencies {
   config: AppConfig;
+  migrationResult: MigrationRunResult;
   tokenRepository: OAuthTokenRepository;
   todoistTaskMapRepository: TodoistTaskMapRepository;
   calendarEventMapRepository: CalendarEventMapRepository;
@@ -28,6 +39,7 @@ interface CreateServerDependencies {
 
 export function createServer({
   config,
+  migrationResult,
   tokenRepository,
   todoistTaskMapRepository,
   calendarEventMapRepository,
@@ -54,9 +66,24 @@ export function createServer({
       obsidianSyncStateRepository.getState(),
     ]);
     const runtime = healthRegistry.getSnapshot();
+    const overall = buildOverallRuntimeSummary(runtime);
+    const providers = {
+      todoist: buildProviderStatus(todoistToken !== null),
+      googleCalendar: buildProviderStatus(googleToken !== null),
+    };
+    const taskCacheDiagnostics = enrichLatestUpdateSummary(taskCache, 60 * 30);
+    const eventCacheDiagnostics = enrichLatestUpdateSummary(eventCache, 60 * 30);
+    const reminderDiagnostics = buildReminderDiagnostics(reminderSummary);
+    const habitDiagnostics = buildHabitDiagnostics(habitSummary);
+    const obsidianDiagnostics = buildObsidianDiagnostics(obsidianState ?? null, {
+      enabled: Boolean(config.obsidianVaultPath),
+      pollIntervalSeconds: config.obsidianSyncPollIntervalSeconds,
+      runtimeSubsystem: runtime.subsystems['obsidian-sync'],
+    });
 
     response.json({
       status: runtime.status,
+      overall,
       service: 'beanbot',
       environment: config.env.NODE_ENV,
       guildId: config.env.DISCORD_GUILD_ID,
@@ -64,19 +91,16 @@ export function createServer({
       startupComplete: runtime.startupComplete,
       todoistConnected: todoistToken !== null,
       googleCalendarConnected: googleToken !== null,
+      providers,
+      migration: buildMigrationRuntimeSummary(migrationResult),
       subsystems: runtime.subsystems,
       caches: {
-        tasks: taskCache,
-        events: eventCache,
+        tasks: taskCacheDiagnostics,
+        events: eventCacheDiagnostics,
       },
-      habits: habitSummary,
-      reminders: reminderSummary,
-      obsidian: {
-        lastFullSyncAtUtc: obsidianState?.lastFullSyncAtUtc ?? null,
-        lastIncrementalSyncAtUtc: obsidianState?.lastIncrementalSyncAtUtc ?? null,
-        lastVaultScanAtUtc: obsidianState?.lastVaultScanAtUtc ?? null,
-        lastIncrementalCursorPresent: Boolean(obsidianState?.lastIncrementalCursor),
-      },
+      habits: habitDiagnostics,
+      reminders: reminderDiagnostics,
+      obsidian: obsidianDiagnostics,
       timestamp: new Date().toISOString(),
     });
     logger.debug('Served health check', {

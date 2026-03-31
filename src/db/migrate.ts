@@ -45,7 +45,7 @@ export function runMigrations(config: AppConfig): MigrationRunResult {
 }
 
 export function inspectMigrationHealth(config: AppConfig) {
-  const sqlite = new Database(config.databasePath, { create: true });
+  const sqlite = new Database(config.databasePath, { readonly: true });
   const issues = collectSchemaIssues(sqlite);
   sqlite.close();
 
