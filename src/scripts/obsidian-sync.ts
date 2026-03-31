@@ -37,6 +37,7 @@ async function main() {
   const vaultAdapter = new ObsidianVaultAdapter(
     config.obsidianVaultPath,
     config.obsidianTasksPath,
+    config.timezone,
     logger.child({ subsystem: 'vault-export' }),
   );
   const localCreateService = new ObsidianLocalCreateService(

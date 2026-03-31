@@ -11,6 +11,7 @@ import { parseObsidianTaskNote, parseWritableFields } from '../../integrations/o
 import type { Logger } from '../../logging/logger';
 import { ObsidianLocalCreateService } from './obsidian-local-create-service';
 import { parseEffortList } from './project-labels';
+import { shiftUtcDatePreservingLocalTime } from '../../utils/time';
 
 export class ObsidianLocalScanService {
   constructor(
@@ -114,7 +115,11 @@ export class ObsidianLocalScanService {
       const parsed = parseObsidianTaskNote(fileContent);
 
       try {
-        const candidate = parseWritableFields(parsed.frontmatter);
+        const candidate = normalizeDueCandidate(
+          task,
+          parseWritableFields(parsed.frontmatter, this.config.timezone),
+          this.config.timezone,
+        );
         const effortValues = Array.isArray(parsed.frontmatter.effort)
           ? parsed.frontmatter.effort.filter((value): value is string => typeof value === 'string')
           : [];
@@ -303,10 +308,10 @@ function buildWritableDiff(
     changedFields.push('labels');
   }
   if ((task.dueDate ?? undefined) !== (candidate.dueDate ?? undefined)) {
-    changedFields.push('due_date');
+    changedFields.push('date');
   }
-  if ((task.dueDatetimeUtc ?? undefined) !== (candidate.dueDatetime ?? undefined)) {
-    changedFields.push('due_datetime');
+  if (candidate.dueDatetime !== undefined && (task.dueDatetimeUtc ?? undefined) !== (candidate.dueDatetime ?? undefined)) {
+    changedFields.push('datetime');
   }
 
   return changedFields;
@@ -322,6 +327,42 @@ function sameStringList(left: string[], right: string[]) {
 
 function hashString(value: string) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function normalizeDueCandidate(
+  task: {
+    dueDate?: string;
+    dueDatetimeUtc?: string;
+  },
+  candidate: ObsidianLocalCandidate,
+  timezone: string,
+): ObsidianLocalCandidate {
+  if (candidate.dueDatetime !== undefined) {
+    return candidate;
+  }
+
+  if (!candidate.dueDate) {
+    return {
+      ...candidate,
+      dueDatetime: undefined,
+    };
+  }
+
+  if (!task.dueDatetimeUtc) {
+    return candidate;
+  }
+
+  if ((task.dueDate ?? undefined) === candidate.dueDate) {
+    return {
+      ...candidate,
+      dueDatetime: task.dueDatetimeUtc,
+    };
+  }
+
+  return {
+    ...candidate,
+    dueDatetime: shiftUtcDatePreservingLocalTime(task.dueDatetimeUtc, candidate.dueDate, timezone),
+  };
 }
 
 async function listMarkdownTaskFiles(vaultPath: string, tasksPath: string) {

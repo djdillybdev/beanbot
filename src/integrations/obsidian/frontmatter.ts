@@ -1,4 +1,5 @@
 import { isObsidianEffortLabel, parseEffortList, type ObsidianEffort } from '../../app/obsidian/project-labels';
+import { getLocalDateParts, parseLocalDateTimeProperty } from '../../utils/time';
 
 export interface ParsedObsidianTaskNote {
   frontmatter: Record<string, boolean | number | string | string[] | null>;
@@ -29,26 +30,49 @@ export function parseObsidianTaskNote(markdown: string): ParsedObsidianTaskNote 
   };
 }
 
-export function parseWritableFields(frontmatter: Record<string, boolean | number | string | string[] | null>): ParsedObsidianWritableFields {
+export function parseWritableFields(
+  frontmatter: Record<string, boolean | number | string | string[] | null>,
+  timezone: string,
+): ParsedObsidianWritableFields {
   const title = requireString(frontmatter.title, 'title');
   const completed = requireBoolean(frontmatter.completed, 'completed');
   const priorityApi = requireNumber(frontmatter.priority_api, 'priority_api');
   const project = optionalString(frontmatter.project);
   const effortValues = requireOptionalStringList(frontmatter.effort, 'effort');
   const labels = requireStringList(frontmatter.labels, 'labels');
-  const dueDate = optionalString(frontmatter.due_date);
-  const dueDatetime = optionalString(frontmatter.due_datetime);
+  const date = optionalString(frontmatter.date);
+  const legacyDueDate = optionalString(frontmatter.due_date);
+  const datetime = optionalString(frontmatter.datetime);
+  const legacyDueDatetime = optionalString(frontmatter.due_datetime);
+  const rawDueDate = date ?? legacyDueDate;
+  const rawDueDatetime = datetime ?? legacyDueDatetime;
 
   if (priorityApi < 1 || priorityApi > 4) {
     throw new Error('priority_api must be between 1 and 4.');
   }
 
-  if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-    throw new Error('due_date must use YYYY-MM-DD.');
+  if (rawDueDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDueDate)) {
+    throw new Error('date must use YYYY-MM-DD.');
   }
 
-  if (dueDatetime && Number.isNaN(Date.parse(dueDatetime))) {
-    throw new Error('due_datetime must be an ISO datetime.');
+  let dueDatetime: string | undefined;
+  let dueDate = rawDueDate ?? undefined;
+
+  if (rawDueDatetime) {
+    if (datetime) {
+      const localDatetime = parseLocalDateTimeProperty(rawDueDatetime, timezone);
+      dueDatetime = localDatetime.toISOString();
+      dueDate = getLocalDateParts(localDatetime, timezone).date;
+    } else {
+      const parsedLegacyDate = new Date(rawDueDatetime);
+
+      if (Number.isNaN(parsedLegacyDate.getTime())) {
+        throw new Error('due_datetime must be an ISO datetime.');
+      }
+
+      dueDatetime = parsedLegacyDate.toISOString();
+      dueDate = getLocalDateParts(parsedLegacyDate, timezone).date;
+    }
   }
 
   const invalidEffort = effortValues.find((value) => !isObsidianEffortLabel(value.trim().toLowerCase()));

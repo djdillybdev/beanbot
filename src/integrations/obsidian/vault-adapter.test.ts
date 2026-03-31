@@ -31,7 +31,7 @@ describe('obsidian vault adapter', () => {
   test('exports to stable todoist id filenames', async () => {
     const root = await mkdtemp(join(tmpdir(), 'beanbot-obsidian-'));
     createdDirs.push(root);
-    const adapter = new ObsidianVaultAdapter(root, 'Tasks/todoist', noopLogger);
+    const adapter = new ObsidianVaultAdapter(root, 'Tasks/todoist', 'UTC', noopLogger);
 
     const result = await adapter.exportTask(buildTask());
 
@@ -39,6 +39,8 @@ describe('obsidian vault adapter', () => {
     const content = await readFile(join(root, result.relativePath), 'utf8');
     expect(content).toContain('title: "Write docs"');
     expect(content).toContain('effort:\n  - "quick"');
+    expect(content).toContain('date: "2026-03-30"');
+    expect(content).not.toContain('datetime:');
     expect(content).toContain('aliases:\n  - "Write docs"');
   });
 
@@ -56,6 +58,7 @@ completed: false
 priority_api: 4
 effort:
   - "quick"
+date: "2026-03-30"
 labels: []
 ---
 
@@ -64,7 +67,7 @@ hello
       'utf8',
     );
 
-    const adapter = new ObsidianVaultAdapter(root, 'Tasks/todoist', noopLogger);
+    const adapter = new ObsidianVaultAdapter(root, 'Tasks/todoist', 'UTC', noopLogger);
     const result = await adapter.exportTask(buildTask(), 'Tasks/todoist/Write docs.md');
 
     expect(result.relativePath).toBe('Tasks/todoist/123.md');
@@ -80,6 +83,8 @@ function buildTask() {
     priorityApi: 4,
     effort: 'quick' as const,
     labels: [],
+    dueDate: '2026-03-30',
+    dueDatetimeUtc: '2026-03-30T14:45:00.000Z',
     recurring: false,
     todoistUrl: 'https://app.todoist.com/app/task/123',
     lastSyncedAtUtc: '2026-03-30T00:00:00.000Z',

@@ -4,6 +4,7 @@ import { dirname, join, relative } from 'node:path';
 
 import type { Logger } from '../../logging/logger';
 import type { ObsidianExportTask } from '../../db/obsidian-task-repository';
+import { formatLocalDateTimeProperty, getLocalDateParts } from '../../utils/time';
 
 interface ExportResult {
   filePath: string;
@@ -19,6 +20,7 @@ export class ObsidianVaultAdapter {
   constructor(
     private readonly vaultPath: string,
     private readonly tasksPath: string,
+    private readonly timezone: string,
     private readonly logger: Logger,
   ) {}
 
@@ -29,7 +31,7 @@ export class ObsidianVaultAdapter {
     const existingBody = await this.readExistingBody(filePath);
     const noteBody = task.noteBody ?? existingBody ?? '';
     const metadataHash = hashString(buildMetadataHashSource(task));
-    const content = buildMarkdown(task, metadataHash, noteBody);
+    const content = buildMarkdown(task, metadataHash, noteBody, this.timezone);
     const contentHash = hashString(content);
     const currentFile = await this.safeReadFile(filePath);
 
@@ -124,7 +126,9 @@ export class ObsidianVaultAdapter {
   }
 }
 
-function buildMarkdown(task: ObsidianExportTask, metadataHash: string, noteBody: string) {
+function buildMarkdown(task: ObsidianExportTask, metadataHash: string, noteBody: string, timezone: string) {
+  const noteDate = getNoteDate(task, timezone);
+
   const frontmatterLines = [
     '---',
     serializeYamlField('todoist_id', task.todoistTaskId),
@@ -135,8 +139,7 @@ function buildMarkdown(task: ObsidianExportTask, metadataHash: string, noteBody:
     serializeYamlField('project', task.project ?? null),
     serializeYamlField('effort', task.effort ? [task.effort] : []),
     serializeYamlField('labels', task.labels),
-    serializeYamlField('due_date', task.dueDate ?? null),
-    serializeYamlField('due_datetime', task.dueDatetimeUtc ?? null),
+    serializeYamlField('date', noteDate),
     serializeYamlField('recurring', task.recurring),
     serializeYamlField('parent_id', task.parentId ?? null),
     serializeYamlField('order_index', task.orderIndex ?? null),
@@ -183,6 +186,18 @@ function buildMetadataHashSource(task: ObsidianExportTask) {
     syncStatus: task.syncStatus,
     sourceOfLastChange: task.sourceOfLastChange,
   });
+}
+
+function getNoteDate(task: ObsidianExportTask, timezone: string) {
+  if (task.dueDatetimeUtc) {
+    return getLocalDateParts(new Date(task.dueDatetimeUtc), timezone).date;
+  }
+
+  if (!task.dueDate) {
+    return null;
+  }
+
+  return task.dueDate.includes('T') ? task.dueDate.slice(0, 10) : task.dueDate;
 }
 
 function serializeYamlField(name: string, value: boolean | number | string | string[] | null) {

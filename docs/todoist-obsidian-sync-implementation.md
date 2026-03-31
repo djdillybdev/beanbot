@@ -45,8 +45,7 @@ Frontmatter fields:
 - `project`
 - `effort`
 - `labels`
-- `due_date`
-- `due_datetime`
+- `date`
 - `recurring`
 - `parent_id`
 - `order_index`
@@ -78,7 +77,8 @@ The note body is preserved during export and remains local-only.
 - `obsidian_sync_event` logs sync successes and failures for debugging.
 - tracked-note disappearance becomes `pending_delete`, then a Todoist delete, then a tombstoned local DB row.
 - remote `checked=true` tasks are stored as completed local tasks rather than disappearing from the export model.
-- changed note frontmatter is parsed for `title`, `completed`, `priority_api`, `project`, `effort`, `labels`, `due_date`, and `due_datetime`.
+- changed note frontmatter is parsed for `title`, `completed`, `priority_api`, `project`, `effort`, `labels`, and `date`.
+- legacy `datetime`, `due_date`, and `due_datetime` are still read for compatibility, but exports now write only `date`.
 - local edits are stored in SQLite as `pending_push`, then pushed to Todoist on the next sync pass.
 - `project` is written back by generating a Todoist label in `proj:<slug>` format and merging it with the other labels.
 - `effort` is written back as exactly one Todoist label in `quick`, `easy`, `flow`, or `personal`.

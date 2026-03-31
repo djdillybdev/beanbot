@@ -1,13 +1,41 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 
-import type { HabitCompletionRecord, HabitCompletionRecordInput } from '../domain/habit';
 import type { Database } from './types';
 import { habitCompletionHistory } from './schema';
+
+interface LegacyHabitCompletionRecord {
+  dedupeKey: string;
+  todoistTaskId: string;
+  normalizedTitle: string;
+  title: string;
+  completedAtUtc: string;
+  completedLocalDate: string;
+  source: 'bot' | 'todoist_external';
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  url: string;
+  createdAtUtc: string;
+}
+
+interface LegacyHabitCompletionRecordInput {
+  dedupeKey: string;
+  todoistTaskId: string;
+  normalizedTitle: string;
+  title: string;
+  completedAtUtc: string;
+  completedLocalDate: string;
+  source: 'bot' | 'todoist_external';
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  url: string;
+}
 
 export class HabitCompletionHistoryRepository {
   constructor(private readonly db: Database) {}
 
-  async upsert(record: HabitCompletionRecordInput) {
+  async upsert(record: LegacyHabitCompletionRecordInput) {
     await this.db
       .insert(habitCompletionHistory)
       .values({
@@ -28,7 +56,7 @@ export class HabitCompletionHistoryRepository {
       });
   }
 
-  async listAll(): Promise<HabitCompletionRecord[]> {
+  async listAll(): Promise<LegacyHabitCompletionRecord[]> {
     const rows = await this.db.query.habitCompletionHistory.findMany({
       orderBy: [asc(habitCompletionHistory.completedAtUtc)],
     });
@@ -36,7 +64,7 @@ export class HabitCompletionHistoryRepository {
     return rows.map(mapRow);
   }
 
-  async listByLocalDate(localDate: string): Promise<HabitCompletionRecord[]> {
+  async listByLocalDate(localDate: string): Promise<LegacyHabitCompletionRecord[]> {
     const rows = await this.db.query.habitCompletionHistory.findMany({
       where: eq(habitCompletionHistory.completedLocalDate, localDate),
       orderBy: [desc(habitCompletionHistory.completedAtUtc)],
@@ -66,7 +94,7 @@ export class HabitCompletionHistoryRepository {
   }
 }
 
-function mapRow(row: typeof habitCompletionHistory.$inferSelect): HabitCompletionRecord {
+function mapRow(row: typeof habitCompletionHistory.$inferSelect): LegacyHabitCompletionRecord {
   return {
     dedupeKey: row.dedupeKey,
     todoistTaskId: row.todoistTaskId,
@@ -74,7 +102,7 @@ function mapRow(row: typeof habitCompletionHistory.$inferSelect): HabitCompletio
     title: row.title,
     completedAtUtc: row.completedAtUtc,
     completedLocalDate: row.completedLocalDate,
-    source: row.source as HabitCompletionRecord['source'],
+    source: row.source as LegacyHabitCompletionRecord['source'],
     priority: row.priority,
     projectId: row.projectId ?? undefined,
     projectName: row.projectName ?? undefined,

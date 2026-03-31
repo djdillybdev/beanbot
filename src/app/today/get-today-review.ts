@@ -11,10 +11,9 @@ import type {
   UpcomingTaskReviewResult,
 } from '../../domain/daily-review';
 import type { AppConfig } from '../../config';
-import { HabitCompletionHistoryRepository } from '../../db/habit-completion-history-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import { EventService } from '../events/event-service';
-import { buildExternalHabitCompletionRecords } from '../habits/habit-completion-sync';
+import { HabitService } from '../habits/habit-service';
 import {
   buildHabitReviewResult,
   mapCompletedHabitEntry,
@@ -40,7 +39,7 @@ export class TodayReviewService {
     private readonly todoistClient: TodoistClient,
     private readonly googleCalendarClient: GoogleCalendarClient,
     private readonly taskMapRepository: TodoistTaskMapRepository,
-    private readonly habitCompletionHistoryRepository: HabitCompletionHistoryRepository,
+    private readonly habitService: HabitService,
     private readonly taskService?: TaskService,
     private readonly eventService?: EventService,
     private readonly logger?: Logger,
@@ -185,31 +184,21 @@ export class TodayReviewService {
     });
 
     await this.syncExternalHabitCompletionsForToday(now, todoistStatus);
+    await this.habitService.syncTasks([...taskResult.overdueTasks, ...taskResult.dueTodayTasks]);
+    await this.habitService.refreshAllActiveMetrics(now);
 
     const overdueHabits = splitTasksByHabitLabel(taskResult.overdueTasks).habits;
     const dueTodayHabits = splitTasksByHabitLabel(taskResult.dueTodayTasks).habits;
     const completedHabits = await this.getCompletedHabitsForDate(now);
-    const history = await this.habitCompletionHistoryRepository.listAll();
+    const streaks = await this.habitService.listActiveStreaks(now);
 
     await this.refreshTaskCache([...taskResult.overdueTasks, ...taskResult.dueTodayTasks], todoistStatus.connected);
 
     return buildHabitReviewResult(
-      now,
-      this.config.timezone,
       overdueHabits,
       dueTodayHabits,
       completedHabits,
-      history.map((task) => ({
-        id: task.todoistTaskId,
-        title: task.title,
-        normalizedTitle: task.normalizedTitle,
-        labels: ['habit'],
-        completedAtUtc: task.completedAtUtc,
-        url: task.url,
-        priority: task.priority,
-        projectId: task.projectId,
-        projectName: task.projectName,
-      })),
+      streaks,
       todoistStatus,
     );
   }
@@ -362,21 +351,21 @@ export class TodayReviewService {
 
   private async getCompletedHabitsForDate(now: Date) {
     const targetDate = getLocalDateParts(now, this.config.timezone).date;
-    const completedHabits = await this.habitCompletionHistoryRepository.listByLocalDate(targetDate);
+    const completedHabits = await this.habitService.listCompletedForLocalDate(targetDate);
 
     return completedHabits
-      .map((task) =>
+      .map(({ habit, completion }) =>
         mapCompletedHabitEntry(
           {
-            id: task.todoistTaskId,
-            title: task.title,
-            normalizedTitle: task.normalizedTitle,
+            id: habit.todoistTaskId ?? String(habit.id),
+            title: habit.title,
+            normalizedTitle: habit.normalizedTitle,
             labels: ['habit'],
-            completedAtUtc: task.completedAtUtc,
-            url: task.url,
-            priority: task.priority,
-            projectId: task.projectId,
-            projectName: task.projectName,
+            completedAtUtc: completion.completedAtUtc,
+            url: habit.todoistUrl ?? '',
+            priority: 1,
+            projectId: habit.projectId,
+            projectName: habit.projectName,
           },
           this.config.timezone,
         ),
@@ -392,15 +381,10 @@ export class TodayReviewService {
     try {
       const completedTasks = await this.todoistClient.getCompletedTasksForToday(now);
       const cachedTasks = await this.taskMapRepository.findByIds(completedTasks.map((task) => task.id));
-      const records = buildExternalHabitCompletionRecords(
+      await this.habitService.recordExternalCompletions(
         completedTasks,
         new Map(cachedTasks.map((task) => [task.id, task])),
-        this.config.timezone,
       );
-
-      for (const record of records) {
-        await this.habitCompletionHistoryRepository.upsert(record);
-      }
     } catch (error) {
       this.logger?.warn('External habit completion sync failed', {
         error: error instanceof Error ? error.message : String(error),

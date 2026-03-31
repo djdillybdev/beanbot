@@ -1,5 +1,5 @@
 import type { DailyTaskSummary } from '../../domain/daily-review';
-import { HabitCompletionHistoryRepository } from '../../db/habit-completion-history-repository';
+import { HabitService } from '../habits/habit-service';
 import type { ReminderService } from '../reminders/reminder-service';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
@@ -19,7 +19,6 @@ import type { Logger } from '../../logging/logger';
 import { TodayStatusRefreshNotifier } from '../today/today-status-refresh-notifier';
 import { normalizeTaskTitle } from '../../utils/text';
 import { buildTaskAutocompleteLabel } from '../../bot/renderers/task-autocomplete';
-import { buildHabitCompletionRecordFromTask } from '../habits/habit-completion-sync';
 
 export class TaskService {
   constructor(
@@ -27,7 +26,7 @@ export class TaskService {
     private readonly todoistClient: TodoistClient,
     private readonly taskMapRepository: TodoistTaskMapRepository,
     private readonly actionLogRepository: ActionLogRepository,
-    private readonly habitCompletionHistoryRepository?: HabitCompletionHistoryRepository,
+    private readonly habitService?: HabitService,
     private readonly reminderService?: ReminderService,
     private readonly todayStatusRefreshNotifier?: TodayStatusRefreshNotifier,
     private readonly logger?: Logger,
@@ -353,6 +352,7 @@ export class TaskService {
     this.logger?.debug('Refreshing task cache with full records', { taskCount: tasks.length });
     for (const task of tasks) {
       await this.taskMapRepository.upsert(task);
+      await this.habitService?.syncTask(task);
     }
   }
 
@@ -369,10 +369,13 @@ export class TaskService {
         dueLabel: task.dueLabel,
         dueDate: task.dateKey,
         dueDateTimeUtc: undefined,
+        dueString: task.dueString,
+        recurring: task.recurring,
         labels: task.labels,
         url: task.url,
         taskStatus: 'active',
       });
+      await this.habitService?.syncTask(task);
     }
   }
 
@@ -446,25 +449,11 @@ export class TaskService {
   }
 
   private async recordHabitCompletion(task: TodoistTaskRecord) {
-    if (!this.habitCompletionHistoryRepository) {
-      return;
-    }
-
-    const record = buildHabitCompletionRecordFromTask(task, new Date().toISOString(), this.timezone, 'bot');
-
-    if (!record) {
-      return;
-    }
-
-    await this.habitCompletionHistoryRepository.upsert(record);
+    await this.habitService?.recordCompletion(task, new Date().toISOString(), 'bot');
   }
 
   private async deleteLatestHabitCompletion(taskId: string) {
-    if (!this.habitCompletionHistoryRepository) {
-      return;
-    }
-
-    await this.habitCompletionHistoryRepository.deleteLatestForTask(taskId);
+    await this.habitService?.deleteLatestCompletionForTask(taskId);
   }
 }
 

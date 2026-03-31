@@ -7,6 +7,8 @@ export interface DailyTaskSummary {
   projectName?: string;
   dueLabel: string;
   dueSortKey: string;
+  dueString?: string;
+  recurring?: boolean;
   labels?: string[];
   url: string;
 }
@@ -79,7 +81,7 @@ export interface UpcomingTaskReviewResult {
 }
 
 export interface HabitStreakSummary {
-  normalizedTitle: string;
+  habitId: number;
   title: string;
   currentStreak: number;
   completedToday: boolean;

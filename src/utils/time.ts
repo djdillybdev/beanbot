@@ -154,6 +154,39 @@ export function formatLocalDateTimeInput(date: Date, timezone: string): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
+export function parseLocalDateTimeProperty(value: string, timezone: string): Date {
+  const trimmed = value.trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(trimmed)) {
+    throw new Error('datetime must use YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss.');
+  }
+
+  try {
+    return parseLocalDateTimeInput(trimmed.slice(0, 16), timezone);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(error.message);
+    }
+
+    throw error;
+  }
+}
+
+export function formatLocalDateTimeProperty(date: Date, timezone: string): string {
+  return `${formatLocalDateTimeInput(date, timezone).replace(' ', 'T')}:00`;
+}
+
+export function shiftUtcDatePreservingLocalTime(currentUtcIso: string, nextLocalDate: string, timezone: string): string {
+  const currentDate = new Date(currentUtcIso);
+
+  if (Number.isNaN(currentDate.getTime())) {
+    throw new Error(`Invalid UTC datetime: ${currentUtcIso}`);
+  }
+
+  const parts = getLocalDateTimeParts(currentDate, timezone);
+  return parseLocalDateTimeInput(`${nextLocalDate} ${parts.hour}:${parts.minute}`, timezone).toISOString();
+}
+
 function addDays(dateString: string, days: number): string {
   const { year, month, day } = parseIsoDate(dateString);
   const date = new Date(Date.UTC(year, month - 1, day + days));

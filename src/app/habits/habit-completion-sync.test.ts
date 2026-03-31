@@ -1,18 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
-import { buildExternalHabitCompletionRecords, buildHabitCompletionRecordFromTask } from './habit-completion-sync';
+import {
+  buildExternalHabitCompletionCandidates,
+  buildHabitCompletionCandidateFromTask,
+} from './habit-completion-sync';
 
 describe('habit completion sync', () => {
   test('builds a bot completion record only for habit-labeled tasks', () => {
-    const record = buildHabitCompletionRecordFromTask(
+    const record = buildHabitCompletionCandidateFromTask(
       {
         id: 'task-1',
-        normalizedTitle: 'walk',
-        title: 'Walk',
-        priority: 1,
-        projectId: 'proj-1',
-        projectName: 'Personal',
-        url: 'https://example.com/task-1',
         labels: ['habit'],
       },
       '2026-03-29T07:00:00.000Z',
@@ -21,12 +18,12 @@ describe('habit completion sync', () => {
     );
 
     expect(record).not.toBeNull();
-    expect(record?.dedupeKey).toBe('task-1:2026-03-29');
+    expect(record?.completedLocalDate).toBe('2026-03-29');
     expect(record?.source).toBe('bot');
   });
 
   test('matches external completions only by known habit task id', () => {
-    const records = buildExternalHabitCompletionRecords(
+    const records = buildExternalHabitCompletionCandidates(
       [
         {
           id: 'task-1',
@@ -86,7 +83,7 @@ describe('habit completion sync', () => {
   });
 
   test('ignores external completions for unknown tasks', () => {
-    const records = buildExternalHabitCompletionRecords(
+    const records = buildExternalHabitCompletionCandidates(
       [
         {
           id: 'task-unknown',

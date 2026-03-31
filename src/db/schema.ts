@@ -80,6 +80,7 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
   lastSeenDueDate: text('last_seen_due_date'),
   lastSeenDueDatetimeUtc: text('last_seen_due_datetime_utc'),
   lastSeenDueString: text('last_seen_due_string'),
+  lastSeenRecurring: integer('last_seen_recurring', { mode: 'boolean' }).notNull().default(false),
   lastSeenLabelsCsv: text('last_seen_labels_csv'),
   lastSeenUrl: text('last_seen_url').notNull(),
   taskStatus: text('task_status').notNull().default('active'),
@@ -113,6 +114,59 @@ export const habitCompletionHistory = sqliteTable(
   (table) => ({
     taskIdx: index('habit_completion_history_task_idx').on(table.todoistTaskId, table.completedAtUtc),
     localDateIdx: index('habit_completion_history_local_date_idx').on(table.completedLocalDate, table.completedAtUtc),
+  }),
+);
+
+export const habit = sqliteTable(
+  'habit',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    todoistTaskId: text('todoist_task_id'),
+    title: text('title').notNull(),
+    normalizedTitle: text('normalized_title').notNull(),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    projectId: text('project_id'),
+    projectName: text('project_name'),
+    todoistUrl: text('todoist_url'),
+    rawRecurrenceText: text('raw_recurrence_text'),
+    scheduleKind: text('schedule_kind').notNull().default('unparsed'),
+    scheduleJson: text('schedule_json').notNull().default('{}'),
+    currentStreak: integer('current_streak').notNull().default(0),
+    longestStreak: integer('longest_streak').notNull().default(0),
+    lastCompletedLocalDate: text('last_completed_local_date'),
+    completionCount: integer('completion_count').notNull().default(0),
+    streakUpdatedAtUtc: text('streak_updated_at_utc'),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAtUtc: text('updated_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    todoistTaskIdx: uniqueIndex('habit_todoist_task_id_idx').on(table.todoistTaskId),
+    activeIdx: index('habit_active_idx').on(table.isActive, table.updatedAtUtc),
+    normalizedIdx: index('habit_normalized_title_idx').on(table.normalizedTitle),
+  }),
+);
+
+export const habitCompletion = sqliteTable(
+  'habit_completion',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    habitId: integer('habit_id').notNull(),
+    todoistTaskId: text('todoist_task_id'),
+    completedAtUtc: text('completed_at_utc').notNull(),
+    completedLocalDate: text('completed_local_date').notNull(),
+    source: text('source').notNull(),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    habitDateIdx: uniqueIndex('habit_completion_habit_date_idx').on(table.habitId, table.completedLocalDate),
+    taskIdx: index('habit_completion_task_idx').on(table.todoistTaskId, table.completedAtUtc),
+    localDateIdx: index('habit_completion_local_date_idx').on(table.completedLocalDate, table.completedAtUtc),
   }),
 );
 

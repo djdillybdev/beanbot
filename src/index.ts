@@ -11,12 +11,13 @@ import { startTodayStatusRefreshScheduler } from './jobs/today-status-refresh-sc
 import { registerGuildCommands } from './bot/register-commands';
 import { ActionLogRepository } from './db/action-log-repository';
 import { CalendarEventMapRepository } from './db/calendar-event-map-repository';
-import { HabitCompletionHistoryRepository } from './db/habit-completion-history-repository';
 import { runMigrations } from './db/migrate';
 import { OAuthTokenRepository } from './db/oauth-token-repository';
 import { PeriodStatusMessageRepository } from './db/period-status-message-repository';
 import { ReminderJobRepository } from './db/reminder-job-repository';
 import { TodoistTaskMapRepository } from './db/todoist-task-map-repository';
+import { HabitRepository } from './db/habit-repository';
+import { HabitCompletionRepository } from './db/habit-completion-repository';
 import { GoogleCalendarClient } from './integrations/google-calendar/client';
 import { GoogleCalendarOAuthService } from './integrations/google-calendar/oauth';
 import { TodoistClient } from './integrations/todoist/client';
@@ -42,6 +43,7 @@ import {
 } from './app/today/status-snapshots';
 import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
+import { HabitService } from './app/habits/habit-service';
 
 async function main() {
   const config = createConfig();
@@ -63,7 +65,8 @@ async function main() {
   const tokenRepository = new OAuthTokenRepository(db);
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
-  const habitCompletionHistoryRepository = new HabitCompletionHistoryRepository(db);
+  const habitRepository = new HabitRepository(db);
+  const habitCompletionRepository = new HabitCompletionRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
   const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
   const eventDraftStore = new EventDraftStore();
@@ -85,12 +88,18 @@ async function main() {
     googleCalendarClient,
     logger.child({ subsystem: 'reminders' }),
   );
+  const habitService = new HabitService(
+    config.timezone,
+    habitRepository,
+    habitCompletionRepository,
+    logger.child({ subsystem: 'habit' }),
+  );
   const taskService = new TaskService(
     config.timezone,
     todoistClient,
     todoistTaskMapRepository,
     actionLogRepository,
-    habitCompletionHistoryRepository,
+    habitService,
     reminderService,
     todayStatusRefreshNotifier,
     logger.child({ subsystem: 'task' }),
@@ -109,7 +118,7 @@ async function main() {
     todoistClient,
     googleCalendarClient,
     todoistTaskMapRepository,
-    habitCompletionHistoryRepository,
+    habitService,
     taskService,
     eventService,
     logger.child({ subsystem: 'today-review' }),

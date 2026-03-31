@@ -41,7 +41,7 @@ export class ObsidianLocalCreateService {
           continue;
         }
 
-        const candidate = parseWritableFields(parsed.frontmatter);
+        const candidate = parseWritableFields(parsed.frontmatter, this.config.timezone);
         const effortValues = Array.isArray(parsed.frontmatter.effort)
           ? parsed.frontmatter.effort.filter((value): value is string => typeof value === 'string')
           : [];

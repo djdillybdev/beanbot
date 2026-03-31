@@ -92,7 +92,8 @@ export function buildHabitStatusSnapshot(periodKey: string, review: HabitReviewR
       completedAtUtc: task.completedAtUtc,
     })),
     streaks: review.streaks.map((streak) => ({
-      normalizedTitle: streak.normalizedTitle,
+      habitId: streak.habitId,
+      title: streak.title,
       currentStreak: streak.currentStreak,
       completedToday: streak.completedToday,
     })),

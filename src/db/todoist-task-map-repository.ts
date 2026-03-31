@@ -9,6 +9,7 @@ interface TodoistTaskMapRowInput {
   title: string;
   normalizedTitle: string;
   priority: number;
+  recurring?: boolean;
   projectId?: string;
   projectName?: string;
   dueLabel?: string;
@@ -39,6 +40,7 @@ export class TodoistTaskMapRepository {
         lastSeenDueDate: task.dueDate ?? null,
         lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
         lastSeenDueString: task.dueString ?? null,
+        lastSeenRecurring: task.recurring ?? false,
         lastSeenLabelsCsv: serializeLabels(task.labels),
         lastSeenUrl: task.url,
         taskStatus: task.taskStatus,
@@ -57,6 +59,7 @@ export class TodoistTaskMapRepository {
           lastSeenDueDate: task.dueDate ?? null,
           lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
           lastSeenDueString: task.dueString ?? null,
+          lastSeenRecurring: task.recurring ?? false,
           lastSeenLabelsCsv: serializeLabels(task.labels),
           lastSeenUrl: task.url,
           taskStatus: task.taskStatus,
@@ -164,6 +167,7 @@ function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTas
     title: row.lastSeenContent,
     normalizedTitle: row.normalizedTitle,
     priority: row.lastSeenPriority,
+    recurring: row.lastSeenRecurring,
     projectId: row.lastSeenProjectId ?? undefined,
     projectName: row.lastSeenProjectName ?? undefined,
     dueLabel: row.lastSeenDueLabel ?? undefined,

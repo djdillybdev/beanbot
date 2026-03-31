@@ -153,6 +153,8 @@ export class TodoistClient {
         projectName: task.project_id ? projectNames.get(task.project_id) : undefined,
         dueLabel: classification.label,
         dueSortKey: classification.sortKey,
+        dueString: task.due?.string ?? undefined,
+        recurring: task.due?.is_recurring ?? false,
         labels: task.labels ?? undefined,
         url: `https://app.todoist.com/app/task/${task.id}`,
       };
