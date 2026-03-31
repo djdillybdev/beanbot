@@ -85,6 +85,13 @@
       "when": 1775262600000,
       "tag": "0011_obsidian_sync_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1775263200000,
+      "tag": "0012_obsidian_task_effort",
+      "breakpoints": true
     }
   ]
 }

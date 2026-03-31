@@ -38,6 +38,7 @@ describe('obsidian vault adapter', () => {
     expect(result.relativePath).toBe('Tasks/todoist/123.md');
     const content = await readFile(join(root, result.relativePath), 'utf8');
     expect(content).toContain('title: "Write docs"');
+    expect(content).toContain('effort:\n  - "quick"');
     expect(content).toContain('aliases:\n  - "Write docs"');
   });
 
@@ -53,6 +54,8 @@ todoist_id: "123"
 title: "Write docs"
 completed: false
 priority_api: 4
+effort:
+  - "quick"
 labels: []
 ---
 
@@ -75,6 +78,7 @@ function buildTask() {
     content: 'Write docs',
     completed: false,
     priorityApi: 4,
+    effort: 'quick' as const,
     labels: [],
     recurring: false,
     todoistUrl: 'https://app.todoist.com/app/task/123',

@@ -1,3 +1,5 @@
+import { isObsidianEffortLabel, parseEffortList, type ObsidianEffort } from '../../app/obsidian/project-labels';
+
 export interface ParsedObsidianTaskNote {
   frontmatter: Record<string, boolean | number | string | string[] | null>;
   body: string;
@@ -8,6 +10,7 @@ export interface ParsedObsidianWritableFields {
   completed: boolean;
   priorityApi: number;
   project?: string;
+  effort?: ObsidianEffort;
   labels: string[];
   dueDate?: string;
   dueDatetime?: string;
@@ -31,6 +34,7 @@ export function parseWritableFields(frontmatter: Record<string, boolean | number
   const completed = requireBoolean(frontmatter.completed, 'completed');
   const priorityApi = requireNumber(frontmatter.priority_api, 'priority_api');
   const project = optionalString(frontmatter.project);
+  const effortValues = requireOptionalStringList(frontmatter.effort, 'effort');
   const labels = requireStringList(frontmatter.labels, 'labels');
   const dueDate = optionalString(frontmatter.due_date);
   const dueDatetime = optionalString(frontmatter.due_datetime);
@@ -47,11 +51,20 @@ export function parseWritableFields(frontmatter: Record<string, boolean | number
     throw new Error('due_datetime must be an ISO datetime.');
   }
 
+  const invalidEffort = effortValues.find((value) => !isObsidianEffortLabel(value.trim().toLowerCase()));
+
+  if (invalidEffort) {
+    throw new Error('effort must only contain quick, easy, flow, or personal.');
+  }
+
+  const effort = parseEffortList(effortValues.map((value) => value.trim().toLowerCase())).effort;
+
   return {
     title,
     completed,
     priorityApi,
     project: project ?? undefined,
+    effort,
     labels: [...labels].sort((left, right) => left.localeCompare(right)),
     dueDate: dueDate ?? undefined,
     dueDatetime: dueDatetime ?? undefined,
@@ -178,6 +191,18 @@ function requireNumber(value: boolean | number | string | string[] | null | unde
 }
 
 function requireStringList(value: boolean | number | string | string[] | null | undefined, field: string) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`${field} must be a list of strings.`);
+  }
+
+  return value.map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+function requireOptionalStringList(value: boolean | number | string | string[] | null | undefined, field: string) {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
     throw new Error(`${field} must be a list of strings.`);
   }

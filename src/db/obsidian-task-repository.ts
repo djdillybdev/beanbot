@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
+import { splitReservedLabels, type ObsidianEffort } from '../app/obsidian/project-labels';
 import { obsidianTask, obsidianTaskLabel } from './schema';
 import type { Database } from './types';
 import type { TodoistTaskRecord } from '../domain/task';
@@ -10,6 +11,7 @@ export interface ObsidianExportTask {
   completed: boolean;
   priorityApi: number;
   project?: string;
+  effort?: ObsidianEffort;
   labels: string[];
   dueDate?: string;
   dueDatetimeUtc?: string;
@@ -36,6 +38,7 @@ export interface ObsidianLocalCandidate {
   completed: boolean;
   priorityApi: number;
   project?: string;
+  effort?: ObsidianEffort;
   labels: string[];
   dueDate?: string;
   dueDatetime?: string;
@@ -46,7 +49,7 @@ export class ObsidianTaskRepository {
 
   async upsertFromTodoist(task: TodoistTaskRecord, options?: { preservePendingPush?: boolean }) {
     const now = new Date().toISOString();
-    const { project, labels } = splitProjectLabel(task.labels);
+    const { project, effort, labels } = splitReservedLabels(task.labels);
     const existing = await this.db.query.obsidianTask.findFirst({
       where: eq(obsidianTask.todoistTaskId, task.id),
     });
@@ -67,6 +70,7 @@ export class ObsidianTaskRepository {
         completed: task.taskStatus === 'completed',
         priorityApi: task.priority,
         project,
+        effort: effort ?? null,
         todoistProjectId: task.projectId ?? null,
         todoistProjectName: task.projectName ?? null,
         sectionId: task.sectionId ?? null,
@@ -92,6 +96,7 @@ export class ObsidianTaskRepository {
           completed: task.taskStatus === 'completed',
           priorityApi: task.priority,
           project,
+          effort: effort ?? null,
           todoistProjectId: task.projectId ?? null,
           todoistProjectName: task.projectName ?? null,
           sectionId: task.sectionId ?? null,
@@ -152,6 +157,7 @@ export class ObsidianTaskRepository {
       completed: task.completed,
       priorityApi: task.priorityApi,
       project: task.project ?? undefined,
+      effort: task.effort as ObsidianEffort | undefined,
       labels: (labelsByTaskId.get(task.todoistTaskId) ?? []).sort((left, right) => left.localeCompare(right)),
       dueDate: task.dueDate ?? undefined,
       dueDatetimeUtc: task.dueDatetimeUtc ?? undefined,
@@ -215,6 +221,7 @@ export class ObsidianTaskRepository {
       completed: task.completed,
       priorityApi: task.priorityApi,
       project: task.project ?? undefined,
+      effort: task.effort as ObsidianEffort | undefined,
       labels: (labelsByTaskId.get(task.todoistTaskId) ?? []).sort((left, right) => left.localeCompare(right)),
       dueDate: task.dueDate ?? undefined,
       dueDatetimeUtc: task.dueDatetimeUtc ?? undefined,
@@ -267,6 +274,7 @@ export class ObsidianTaskRepository {
       completed: task.completed,
       priorityApi: task.priorityApi,
       project: task.project ?? undefined,
+      effort: task.effort as ObsidianEffort | undefined,
       labels: (labelsByTaskId.get(task.todoistTaskId) ?? []).sort((left, right) => left.localeCompare(right)),
       dueDate: task.dueDate ?? undefined,
       dueDatetimeUtc: task.dueDatetimeUtc ?? undefined,
@@ -309,6 +317,7 @@ export class ObsidianTaskRepository {
       completed: task.completed,
       priorityApi: task.priorityApi,
       project: task.project ?? undefined,
+      effort: task.effort as ObsidianEffort | undefined,
       labels: labels.map((label) => label.labelName).sort((left, right) => left.localeCompare(right)),
       dueDate: task.dueDate ?? undefined,
       dueDatetimeUtc: task.dueDatetimeUtc ?? undefined,
@@ -341,6 +350,7 @@ export class ObsidianTaskRepository {
         completed: candidate.completed,
         priorityApi: candidate.priorityApi,
         project: candidate.project ?? null,
+        effort: candidate.effort ?? null,
         dueDate: candidate.dueDate ?? null,
         dueDatetimeUtc: candidate.dueDatetime ?? null,
         noteBody,
@@ -433,6 +443,7 @@ export class ObsidianTaskRepository {
         completed: task.completed,
         priorityApi: task.priorityApi,
         project: task.project ?? null,
+        effort: task.effort ?? null,
         dueDate: task.dueDate ?? null,
         dueDatetimeUtc: task.dueDatetimeUtc ?? null,
         todoistUrl: todoistUrl ?? task.todoistUrl,
@@ -456,22 +467,4 @@ export class ObsidianTaskRepository {
       );
     }
   }
-}
-
-function splitProjectLabel(labels?: string[]) {
-  const projectLabel = labels?.find((label) => label.startsWith('proj:'));
-  const otherLabels = (labels ?? []).filter((label) => label !== projectLabel);
-
-  return {
-    project: projectLabel ? humanizeProjectSlug(projectLabel.slice('proj:'.length)) : undefined,
-    labels: otherLabels,
-  };
-}
-
-function humanizeProjectSlug(slug: string) {
-  return slug
-    .split('-')
-    .filter((part) => part.length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }

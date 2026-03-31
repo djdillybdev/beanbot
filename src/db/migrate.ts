@@ -22,6 +22,7 @@ function ensureObsidianSyncSchema(sqlite: Database) {
       "completed" integer DEFAULT false NOT NULL,
       "priority_api" integer DEFAULT 1 NOT NULL,
       "project" text,
+      "effort" text,
       "todoist_project_id" text,
       "todoist_project_name" text,
       "section_id" text,
@@ -96,4 +97,12 @@ function ensureObsidianSyncSchema(sqlite: Database) {
     CREATE INDEX IF NOT EXISTS "obsidian_sync_event_task_created_idx"
     ON "obsidian_sync_event" ("todoist_task_id", "created_at_utc");
   `);
+
+  const columns = sqlite
+    .query(`PRAGMA table_info("obsidian_task")`)
+    .all() as Array<{ name: string }>;
+
+  if (!columns.some((column) => column.name === 'effort')) {
+    sqlite.exec(`ALTER TABLE "obsidian_task" ADD COLUMN "effort" text;`);
+  }
 }

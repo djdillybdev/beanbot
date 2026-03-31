@@ -10,6 +10,8 @@ title: "Write docs"
 completed: false
 priority_api: 4
 project: "Beanbot"
+effort:
+  - "quick"
 labels:
   - "docs"
   - "writing"
@@ -27,6 +29,7 @@ hello
       completed: false,
       priorityApi: 4,
       project: 'Beanbot',
+      effort: 'quick',
       labels: ['docs', 'writing'],
       dueDate: '2026-03-30',
       dueDatetime: undefined,
@@ -53,6 +56,7 @@ title: "Write docs"
 completed: false
 priority_api: 1
 project:
+effort:
 labels: []
 due_date:
 due_datetime:
@@ -64,6 +68,45 @@ due_datetime:
       completed: false,
       priorityApi: 1,
       project: undefined,
+      effort: undefined,
+      labels: [],
+      dueDate: undefined,
+      dueDatetime: undefined,
+    });
+  });
+
+  test('rejects invalid effort values', () => {
+    const parsed = parseObsidianTaskNote(`---
+title: "Write docs"
+completed: false
+priority_api: 1
+effort:
+  - "huge"
+labels: []
+---
+`);
+
+    expect(() => parseWritableFields(parsed.frontmatter)).toThrow('effort must only contain quick, easy, flow, or personal.');
+  });
+
+  test('normalizes multiple effort values to one', () => {
+    const parsed = parseObsidianTaskNote(`---
+title: "Write docs"
+completed: false
+priority_api: 1
+effort:
+  - "flow"
+  - "easy"
+labels: []
+---
+`);
+
+    expect(parseWritableFields(parsed.frontmatter)).toEqual({
+      title: 'Write docs',
+      completed: false,
+      priorityApi: 1,
+      project: undefined,
+      effort: 'easy',
       labels: [],
       dueDate: undefined,
       dueDatetime: undefined,

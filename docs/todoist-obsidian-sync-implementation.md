@@ -43,6 +43,7 @@ Frontmatter fields:
 - `completed`
 - `priority_api`
 - `project`
+- `effort`
 - `labels`
 - `due_date`
 - `due_datetime`
@@ -68,17 +69,19 @@ The note body is preserved during export and remains local-only.
 - `obsidian_task` is the canonical local sync table for exported task state.
 - the Obsidian sync subsystem now uses Todoist `/sync` incremental tokens instead of active-task REST polling for inbound task state.
 - `obsidian_task_label` stores non-project Todoist labels.
+- `effort` is derived from the first Todoist label matching `quick`, `easy`, `flow`, or `personal`.
 - `project` is derived from the first Todoist label matching `proj:<slug>`.
-- `labels` excludes the `proj:<slug>` label to avoid duplication in Obsidian.
+- `labels` excludes the `proj:<slug>` label and reserved `effort` labels to avoid duplication in Obsidian.
 - `obsidian_note_index` tracks the last exported file hash and path.
 - filenames are engine-owned stable identities; `title` is the editable task name.
 - local note renames are repaired back to the canonical Todoist-ID path on export.
 - `obsidian_sync_event` logs sync successes and failures for debugging.
 - tracked-note disappearance becomes `pending_delete`, then a Todoist delete, then a tombstoned local DB row.
 - remote `checked=true` tasks are stored as completed local tasks rather than disappearing from the export model.
-- changed note frontmatter is parsed for `title`, `completed`, `priority_api`, `project`, `labels`, `due_date`, and `due_datetime`.
+- changed note frontmatter is parsed for `title`, `completed`, `priority_api`, `project`, `effort`, `labels`, `due_date`, and `due_datetime`.
 - local edits are stored in SQLite as `pending_push`, then pushed to Todoist on the next sync pass.
 - `project` is written back by generating a Todoist label in `proj:<slug>` format and merging it with the other labels.
+- `effort` is written back as exactly one Todoist label in `quick`, `easy`, `flow`, or `personal`.
 - untracked local notes with no `todoist_id` are treated as create candidates when they have valid task frontmatter.
 - conflicts and parse/push/delete failures set `sync_status` away from `synced` and are emitted to the logger as warn/error events.
 

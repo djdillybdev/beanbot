@@ -9,6 +9,7 @@ import { ObsidianTaskRepository } from '../../db/obsidian-task-repository';
 import { TodoistClient } from '../../integrations/todoist/client';
 import { ObsidianVaultAdapter } from '../../integrations/obsidian/vault-adapter';
 import type { Logger } from '../../logging/logger';
+import { splitReservedLabels } from './project-labels';
 
 export class ObsidianSyncService {
   constructor(
@@ -45,6 +46,7 @@ export class ObsidianSyncService {
 
       for (const task of tasks) {
         const existingTask = await this.taskRepository.getByTaskId(task.id);
+        const reservedLabels = splitReservedLabels(task.labels);
 
         if (task.taskStatus === 'completed' && existingTask?.taskStatus !== 'completed') {
           completedTaskCount += 1;
@@ -65,6 +67,25 @@ export class ObsidianSyncService {
             todoistTaskId: task.id,
             payloadSummary: JSON.stringify({ title: task.title }),
             result: 'active',
+          });
+        }
+
+        if (reservedLabels.hadEffortConflict) {
+          await this.syncEventRepository.insert({
+            eventType: 'todoist_effort_normalized',
+            source: 'todoist',
+            todoistTaskId: task.id,
+            payloadSummary: JSON.stringify({
+              title: task.title,
+              labels: task.labels ?? [],
+              normalizedEffort: reservedLabels.effort ?? null,
+            }),
+            result: 'warning',
+          });
+          this.logger.warn('Normalized conflicting Todoist effort labels', {
+            todoistTaskId: task.id,
+            labels: task.labels ?? [],
+            normalizedEffort: reservedLabels.effort ?? null,
           });
         }
 

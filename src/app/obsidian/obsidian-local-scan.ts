@@ -10,6 +10,7 @@ import { ObsidianSyncStateRepository } from '../../db/obsidian-sync-state-reposi
 import { parseObsidianTaskNote, parseWritableFields } from '../../integrations/obsidian/frontmatter';
 import type { Logger } from '../../logging/logger';
 import { ObsidianLocalCreateService } from './obsidian-local-create-service';
+import { parseEffortList } from './project-labels';
 
 export class ObsidianLocalScanService {
   constructor(
@@ -114,7 +115,31 @@ export class ObsidianLocalScanService {
 
       try {
         const candidate = parseWritableFields(parsed.frontmatter);
+        const effortValues = Array.isArray(parsed.frontmatter.effort)
+          ? parsed.frontmatter.effort.filter((value): value is string => typeof value === 'string')
+          : [];
+        const effortParse = parseEffortList(effortValues);
         const diff = buildWritableDiff(task, candidate);
+
+        if (effortParse.hadConflict) {
+          await this.syncEventRepository.insert({
+            eventType: 'local_effort_normalized',
+            source: 'obsidian',
+            todoistTaskId: noteIndex.todoistTaskId,
+            payloadSummary: JSON.stringify({
+              filePath: resolvedNote.relativePath,
+              effort: effortValues,
+              normalizedEffort: effortParse.effort ?? null,
+            }),
+            result: 'warning',
+          });
+          this.logger.warn('Normalized conflicting Obsidian effort values', {
+            todoistTaskId: noteIndex.todoistTaskId,
+            filePath: resolvedNote.relativePath,
+            effort: effortValues,
+            normalizedEffort: effortParse.effort ?? null,
+          });
+        }
 
         if (diff.length === 0) {
           await this.taskRepository.updateNoteBody(noteIndex.todoistTaskId, parsed.body);
@@ -250,6 +275,7 @@ function buildWritableDiff(
     completed: boolean;
     priorityApi: number;
     project?: string;
+    effort?: string;
     labels: string[];
     dueDate?: string;
     dueDatetimeUtc?: string;
@@ -269,6 +295,9 @@ function buildWritableDiff(
   }
   if ((task.project ?? undefined) !== (candidate.project ?? undefined)) {
     changedFields.push('project');
+  }
+  if ((task.effort ?? undefined) !== (candidate.effort ?? undefined)) {
+    changedFields.push('effort');
   }
   if (!sameStringList(task.labels, candidate.labels)) {
     changedFields.push('labels');

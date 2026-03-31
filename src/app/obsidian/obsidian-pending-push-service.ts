@@ -1,5 +1,5 @@
 import type { ObsidianExportTask, ObsidianTaskRepository } from '../../db/obsidian-task-repository';
-import { mergeProjectLabel } from './project-labels';
+import { mergeReservedLabels } from './project-labels';
 import { ObsidianSyncEventRepository } from '../../db/obsidian-sync-event-repository';
 import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
@@ -42,7 +42,7 @@ export class ObsidianPendingPushService {
   }
 
   private async pushTask(task: ObsidianExportTask) {
-    const labels = mergeProjectLabel(task.project, task.labels);
+    const labels = mergeReservedLabels(task.project, task.effort, task.labels);
     let remoteIsActive = true;
 
     try {

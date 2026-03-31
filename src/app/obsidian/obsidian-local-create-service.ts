@@ -8,7 +8,7 @@ import type { ObsidianTaskRepository } from '../../db/obsidian-task-repository';
 import { parseObsidianTaskNote, parseWritableFields } from '../../integrations/obsidian/frontmatter';
 import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
-import { mergeProjectLabel } from './project-labels';
+import { mergeReservedLabels, parseEffortList } from './project-labels';
 
 export class ObsidianLocalCreateService {
   constructor(
@@ -42,7 +42,30 @@ export class ObsidianLocalCreateService {
         }
 
         const candidate = parseWritableFields(parsed.frontmatter);
-        const labels = mergeProjectLabel(candidate.project, candidate.labels);
+        const effortValues = Array.isArray(parsed.frontmatter.effort)
+          ? parsed.frontmatter.effort.filter((value): value is string => typeof value === 'string')
+          : [];
+        const effortParse = parseEffortList(effortValues);
+
+        if (effortParse.hadConflict) {
+          await this.syncEventRepository.insert({
+            eventType: 'local_effort_normalized',
+            source: 'obsidian',
+            payloadSummary: JSON.stringify({
+              filePath: relativePath,
+              effort: effortValues,
+              normalizedEffort: effortParse.effort ?? null,
+            }),
+            result: 'warning',
+          });
+          this.logger.warn('Normalized conflicting Obsidian effort values on create', {
+            filePath: relativePath,
+            effort: effortValues,
+            normalizedEffort: effortParse.effort ?? null,
+          });
+        }
+
+        const labels = mergeReservedLabels(candidate.project, candidate.effort, candidate.labels);
         const createdTask = await this.todoistClient.createTask({
           content: candidate.title,
           priority: normalizePriority(candidate.priorityApi),
@@ -72,6 +95,7 @@ export class ObsidianLocalCreateService {
               completed: true,
               priorityApi: candidate.priorityApi,
               project: candidate.project,
+              effort: candidate.effort,
               labels: candidate.labels,
               dueDate: candidate.dueDate,
               dueDatetimeUtc: candidate.dueDatetime,

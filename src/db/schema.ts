@@ -177,6 +177,7 @@ export const obsidianTask = sqliteTable(
     completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
     priorityApi: integer('priority_api').notNull().default(1),
     project: text('project'),
+    effort: text('effort'),
     todoistProjectId: text('todoist_project_id'),
     todoistProjectName: text('todoist_project_name'),
     sectionId: text('section_id'),
