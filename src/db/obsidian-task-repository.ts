@@ -419,6 +419,13 @@ export class ObsidianTaskRepository {
   }
 
   async markDeletedAfterRemoteDelete(todoistTaskId: string) {
+    await this.markReconciledDeleted(todoistTaskId, 'todoist');
+  }
+
+  async markReconciledDeleted(
+    todoistTaskId: string,
+    sourceOfLastChange: 'obsidian' | 'todoist' | 'system' = 'system',
+  ) {
     const now = new Date().toISOString();
 
     await this.db
@@ -426,7 +433,7 @@ export class ObsidianTaskRepository {
       .set({
         taskStatus: 'deleted',
         syncStatus: 'synced',
-        sourceOfLastChange: 'obsidian',
+        sourceOfLastChange,
         lastSyncedAtUtc: now,
         dbUpdatedAtUtc: now,
       })

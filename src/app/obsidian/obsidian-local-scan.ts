@@ -43,6 +43,29 @@ export class ObsidianLocalScanService {
       const resolvedNote = await this.resolveTrackedNote(noteIndex.todoistTaskId, noteIndex.filePath, taskFiles);
 
       if (resolvedNote.status === 'missing') {
+        if (task.taskStatus !== 'active') {
+          await this.taskRepository.markReconciledDeleted(noteIndex.todoistTaskId, 'system');
+          await this.noteIndexRepository.deleteByTaskId(noteIndex.todoistTaskId);
+          await this.syncEventRepository.insert({
+            eventType: 'local_delete_already_reconciled',
+            source: 'system',
+            todoistTaskId: noteIndex.todoistTaskId,
+            payloadSummary: JSON.stringify({
+              filePath: noteIndex.filePath,
+              remoteTaskStatus: task.taskStatus,
+              title: task.content,
+            }),
+            result: 'reconciled',
+          });
+          this.logger.info('Reconciled missing local note against non-active remote task', {
+            todoistTaskId: noteIndex.todoistTaskId,
+            filePath: noteIndex.filePath,
+            remoteTaskStatus: task.taskStatus,
+          });
+          detectedDeleteCount += 1;
+          continue;
+        }
+
         await this.taskRepository.markPendingDelete(noteIndex.todoistTaskId);
         await this.syncEventRepository.insert({
           eventType: 'local_delete_detected',

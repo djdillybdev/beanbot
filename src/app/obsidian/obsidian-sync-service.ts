@@ -5,11 +5,12 @@ import { ObsidianPendingPushService } from './obsidian-pending-push-service';
 import { ObsidianNoteIndexRepository } from '../../db/obsidian-note-index-repository';
 import { ObsidianSyncEventRepository } from '../../db/obsidian-sync-event-repository';
 import { ObsidianSyncStateRepository } from '../../db/obsidian-sync-state-repository';
-import { ObsidianTaskRepository } from '../../db/obsidian-task-repository';
+import { ObsidianTaskRepository, type ObsidianExportTask } from '../../db/obsidian-task-repository';
 import { TodoistClient } from '../../integrations/todoist/client';
 import { ObsidianVaultAdapter } from '../../integrations/obsidian/vault-adapter';
 import type { Logger } from '../../logging/logger';
 import { splitReservedLabels } from './project-labels';
+import type { TodoistTaskRecord } from '../../domain/task';
 
 export class ObsidianSyncService {
   constructor(
@@ -47,6 +48,21 @@ export class ObsidianSyncService {
       for (const task of tasks) {
         const existingTask = await this.taskRepository.getByTaskId(task.id);
         const reservedLabels = splitReservedLabels(task.labels);
+
+        if (task.taskStatus === 'deleted') {
+          await this.reconcileRemoteDeletedTask(task, existingTask);
+          continue;
+        }
+
+        if (existingTask?.syncStatus === 'pending_push' && task.taskStatus !== 'active') {
+          await this.reconcilePendingPushAgainstRemoteState(task, existingTask);
+          continue;
+        }
+
+        if (existingTask?.syncStatus === 'pending_delete' && task.taskStatus !== 'active') {
+          await this.reconcilePendingDeleteAgainstRemoteState(task, existingTask);
+          continue;
+        }
 
         if (task.taskStatus === 'completed' && existingTask?.taskStatus !== 'completed') {
           completedTaskCount += 1;
@@ -172,5 +188,73 @@ export class ObsidianSyncService {
       });
       throw error;
     }
+  }
+
+  private async reconcileRemoteDeletedTask(task: TodoistTaskRecord, existingTask: ObsidianExportTask | null) {
+    const existingIndex = await this.noteIndexRepository.findByTaskId(task.id);
+
+    if (existingIndex) {
+      await this.vaultAdapter.deleteTaskNote(existingIndex.filePath);
+      await this.noteIndexRepository.deleteByTaskId(task.id);
+    }
+
+    await this.taskRepository.upsertFromTodoist(task, { preservePendingPush: false });
+    await this.taskRepository.markReconciledDeleted(task.id, 'todoist');
+    await this.syncEventRepository.insert({
+      eventType: 'remote_delete_reconciled',
+      source: 'todoist',
+      todoistTaskId: task.id,
+      payloadSummary: JSON.stringify({
+        hadTrackedNote: existingIndex !== null,
+        previousSyncStatus: existingTask?.syncStatus ?? null,
+        title: task.title,
+      }),
+      result: 'reconciled',
+    });
+    this.logger.info('Reconciled remote Todoist deletion against local Obsidian state', {
+      todoistTaskId: task.id,
+      hadTrackedNote: existingIndex !== null,
+      previousSyncStatus: existingTask?.syncStatus ?? null,
+    });
+  }
+
+  private async reconcilePendingPushAgainstRemoteState(task: TodoistTaskRecord, existingTask: ObsidianExportTask) {
+    await this.taskRepository.upsertFromTodoist(task, { preservePendingPush: false });
+    await this.syncEventRepository.insert({
+      eventType: 'pending_push_discarded_for_remote_state',
+      source: 'system',
+      todoistTaskId: task.id,
+      payloadSummary: JSON.stringify({
+        remoteTaskStatus: task.taskStatus,
+        previousSyncStatus: existingTask.syncStatus,
+        title: task.title,
+      }),
+      result: 'reconciled',
+    });
+    this.logger.info('Discarded local pending Obsidian push because remote task state won', {
+      todoistTaskId: task.id,
+      remoteTaskStatus: task.taskStatus,
+    });
+  }
+
+  private async reconcilePendingDeleteAgainstRemoteState(task: TodoistTaskRecord, existingTask: ObsidianExportTask) {
+    await this.noteIndexRepository.deleteByTaskId(task.id);
+    await this.taskRepository.upsertFromTodoist(task, { preservePendingPush: false });
+    await this.taskRepository.markReconciledDeleted(task.id, 'system');
+    await this.syncEventRepository.insert({
+      eventType: 'local_delete_already_reconciled',
+      source: 'system',
+      todoistTaskId: task.id,
+      payloadSummary: JSON.stringify({
+        remoteTaskStatus: task.taskStatus,
+        previousSyncStatus: existingTask.syncStatus,
+        title: task.title,
+      }),
+      result: 'reconciled',
+    });
+    this.logger.info('Reconciled pending local delete because remote task was already non-active', {
+      todoistTaskId: task.id,
+      remoteTaskStatus: task.taskStatus,
+    });
   }
 }

@@ -43,17 +43,7 @@ export class ObsidianPendingPushService {
 
   private async pushTask(task: ObsidianExportTask) {
     const labels = mergeReservedLabels(task.project, task.effort, task.labels);
-    let remoteIsActive = true;
-
-    try {
-      await this.todoistClient.getTask(task.todoistTaskId);
-    } catch {
-      remoteIsActive = false;
-    }
-
-    if (!remoteIsActive) {
-      await this.todoistClient.reopenTask(task.todoistTaskId);
-    }
+    await this.todoistClient.getTask(task.todoistTaskId);
 
     const updatedTask = await this.todoistClient.updateTask(task.todoistTaskId, {
       content: task.content,

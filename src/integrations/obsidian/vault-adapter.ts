@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 
 import type { Logger } from '../../logging/logger';
@@ -60,6 +60,23 @@ export class ObsidianVaultAdapter {
       noteBody,
       didWrite,
     };
+  }
+
+  async deleteTaskNote(relativePath: string) {
+    const filePath = join(this.vaultPath, relativePath);
+
+    try {
+      await unlink(filePath);
+      this.logger.info('Deleted Obsidian task note after remote reconciliation', {
+        relativePath,
+      });
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return;
+      }
+
+      throw error;
+    }
   }
 
   private async resolveFilePath(task: ObsidianExportTask, previousRelativePath?: string | null) {

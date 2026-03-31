@@ -21,23 +21,28 @@ export class ObsidianPendingDeleteService {
     for (const task of pendingDeletes) {
       try {
         await this.todoistClient.deleteTask(task.todoistTaskId);
-        await this.taskRepository.markDeletedAfterRemoteDelete(task.todoistTaskId);
-        await this.noteIndexRepository.deleteByTaskId(task.todoistTaskId);
-        await this.syncEventRepository.insert({
-          eventType: 'delete.completed',
-          source: 'obsidian',
-          todoistTaskId: task.todoistTaskId,
-          payloadSummary: JSON.stringify({
-            title: task.content,
-          }),
-          result: 'success',
-        });
+        await this.finalizeDelete(task.todoistTaskId, task.content, 'delete.completed', 'success');
         this.logger.warn('Deleted Todoist task from local note removal', {
           todoistTaskId: task.todoistTaskId,
           title: task.content,
         });
         deletedTaskCount += 1;
       } catch (error) {
+        if (isTodoistNotFoundError(error)) {
+          await this.finalizeDelete(
+            task.todoistTaskId,
+            task.content,
+            'local_delete_already_reconciled',
+            'reconciled',
+          );
+          this.logger.info('Reconciled pending local delete because remote task was already absent', {
+            todoistTaskId: task.todoistTaskId,
+            title: task.content,
+          });
+          deletedTaskCount += 1;
+          continue;
+        }
+
         await this.taskRepository.markError(task.todoistTaskId, 'obsidian');
         await this.syncEventRepository.insert({
           eventType: 'delete.failed',
@@ -56,4 +61,28 @@ export class ObsidianPendingDeleteService {
 
     return { deletedTaskCount, deleteErrorCount };
   }
+
+  private async finalizeDelete(
+    todoistTaskId: string,
+    title: string,
+    eventType: string,
+    result: string,
+  ) {
+    await this.taskRepository.markReconciledDeleted(todoistTaskId, 'obsidian');
+    await this.noteIndexRepository.deleteByTaskId(todoistTaskId);
+    await this.syncEventRepository.insert({
+      eventType,
+      source: 'obsidian',
+      todoistTaskId,
+      payloadSummary: JSON.stringify({
+        title,
+      }),
+      result,
+    });
+  }
+}
+
+function isTodoistNotFoundError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('404');
 }
