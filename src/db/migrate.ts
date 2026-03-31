@@ -4,18 +4,59 @@ import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 
 import type { AppConfig } from '../config';
 
-export function runMigrations(config: AppConfig) {
+export interface MigrationRunResult {
+  verification: {
+    issuesDetected: string[];
+    issuesRemaining: string[];
+  };
+  repairsApplied: string[];
+  databasePath: string;
+}
+
+export function runMigrations(config: AppConfig): MigrationRunResult {
   const sqlite = new Database(config.databasePath, { create: true });
   const db = drizzle(sqlite);
   migrate(db, {
     migrationsFolder: './drizzle',
   });
-  ensureObsidianSyncSchema(sqlite);
-  ensureHabitSchema(sqlite);
+  const repairsApplied: string[] = [];
+  const issuesDetected = collectSchemaIssues(sqlite);
+
+  if (issuesDetected.length > 0) {
+    ensureObsidianSyncSchema(sqlite, repairsApplied);
+    ensureHabitSchema(sqlite, repairsApplied);
+  }
+
+  const issuesRemaining = collectSchemaIssues(sqlite);
   sqlite.close();
+
+  if (issuesRemaining.length > 0) {
+    throw new Error(`Schema verification failed:\n- ${issuesRemaining.join('\n- ')}`);
+  }
+
+  return {
+    verification: {
+      issuesDetected,
+      issuesRemaining,
+    },
+    repairsApplied,
+    databasePath: config.databasePath,
+  };
 }
 
-function ensureObsidianSyncSchema(sqlite: Database) {
+export function inspectMigrationHealth(config: AppConfig) {
+  const sqlite = new Database(config.databasePath, { create: true });
+  const issues = collectSchemaIssues(sqlite);
+  sqlite.close();
+
+  return {
+    databasePath: config.databasePath,
+    status: issues.length === 0 ? 'healthy' : 'degraded',
+    issues,
+  };
+}
+
+function ensureObsidianSyncSchema(sqlite: Database, repairsApplied: string[]) {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS "obsidian_task" (
       "todoist_task_id" text PRIMARY KEY NOT NULL,
@@ -105,12 +146,16 @@ function ensureObsidianSyncSchema(sqlite: Database) {
 
   if (!columns.some((column) => column.name === 'effort')) {
     sqlite.exec(`ALTER TABLE "obsidian_task" ADD COLUMN "effort" text;`);
+    repairsApplied.push('Added obsidian_task.effort compatibility column.');
   }
 }
 
-function ensureHabitSchema(sqlite: Database) {
+function ensureHabitSchema(sqlite: Database, repairsApplied: string[]) {
+  const initialRepairCount = repairsApplied.length;
+
   if (!hasColumn(sqlite, 'todoist_task_map', 'last_seen_recurring')) {
     sqlite.exec(`ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_recurring" integer DEFAULT false NOT NULL;`);
+    repairsApplied.push('Added todoist_task_map.last_seen_recurring compatibility column.');
   }
 
   sqlite.exec(`
@@ -168,10 +213,30 @@ function ensureHabitSchema(sqlite: Database) {
     ON "habit_completion" ("completed_local_date", "completed_at_utc");
   `);
 
-  ensureHabitColumn(sqlite, 'active_status', `ALTER TABLE "habit" ADD COLUMN "active_status" text DEFAULT 'inactive' NOT NULL;`);
-  ensureHabitColumn(sqlite, 'current_due_date', `ALTER TABLE "habit" ADD COLUMN "current_due_date" text;`);
-  ensureHabitColumn(sqlite, 'current_due_datetime_utc', `ALTER TABLE "habit" ADD COLUMN "current_due_datetime_utc" text;`);
-  ensureHabitColumn(sqlite, 'current_due_string', `ALTER TABLE "habit" ADD COLUMN "current_due_string" text;`);
+  ensureHabitColumn(
+    sqlite,
+    'active_status',
+    `ALTER TABLE "habit" ADD COLUMN "active_status" text DEFAULT 'inactive' NOT NULL;`,
+    repairsApplied,
+  );
+  ensureHabitColumn(
+    sqlite,
+    'current_due_date',
+    `ALTER TABLE "habit" ADD COLUMN "current_due_date" text;`,
+    repairsApplied,
+  );
+  ensureHabitColumn(
+    sqlite,
+    'current_due_datetime_utc',
+    `ALTER TABLE "habit" ADD COLUMN "current_due_datetime_utc" text;`,
+    repairsApplied,
+  );
+  ensureHabitColumn(
+    sqlite,
+    'current_due_string',
+    `ALTER TABLE "habit" ADD COLUMN "current_due_string" text;`,
+    repairsApplied,
+  );
 
   sqlite.exec(`
     INSERT INTO "habit" (
@@ -267,12 +332,64 @@ function ensureHabitSchema(sqlite: Database) {
       OR "active_status" = ''
       OR "current_due_string" IS NULL;
   `);
+
+  if (repairsApplied.length > initialRepairCount) {
+    repairsApplied.push('Replayed habit compatibility backfill statements.');
+  }
 }
 
-function ensureHabitColumn(sqlite: Database, columnName: string, alterSql: string) {
+function ensureHabitColumn(
+  sqlite: Database,
+  columnName: string,
+  alterSql: string,
+  repairsApplied: string[],
+) {
   if (!hasColumn(sqlite, 'habit', columnName)) {
     sqlite.exec(alterSql);
+    repairsApplied.push(`Added habit.${columnName} compatibility column.`);
   }
+}
+
+function collectSchemaIssues(sqlite: Database) {
+  const issues: string[] = [];
+
+  if (!hasTable(sqlite, 'obsidian_task')) {
+    issues.push('Missing table obsidian_task');
+  }
+
+  if (hasTable(sqlite, 'obsidian_task') && !hasColumn(sqlite, 'obsidian_task', 'effort')) {
+    issues.push('Missing column obsidian_task.effort');
+  }
+
+  if (!hasTable(sqlite, 'habit')) {
+    issues.push('Missing table habit');
+  }
+
+  if (!hasTable(sqlite, 'habit_completion')) {
+    issues.push('Missing table habit_completion');
+  }
+
+  if (hasTable(sqlite, 'habit') && !hasColumn(sqlite, 'habit', 'active_status')) {
+    issues.push('Missing column habit.active_status');
+  }
+
+  if (hasTable(sqlite, 'habit') && !hasColumn(sqlite, 'habit', 'current_due_string')) {
+    issues.push('Missing column habit.current_due_string');
+  }
+
+  if (!hasColumn(sqlite, 'todoist_task_map', 'last_seen_recurring')) {
+    issues.push('Missing column todoist_task_map.last_seen_recurring');
+  }
+
+  return issues;
+}
+
+function hasTable(sqlite: Database, tableName: string) {
+  const rows = sqlite
+    .query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .all(tableName) as Array<{ name: string }>;
+
+  return rows.length > 0;
 }
 
 function hasColumn(sqlite: Database, tableName: string, columnName: string) {

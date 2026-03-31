@@ -56,7 +56,7 @@ export class EventService {
   }
 
   async getEventForEdit(eventId: string): Promise<GoogleCalendarEventRecord | null> {
-    const cachedEvent = await this.eventMapRepository.findById(eventId, ['active']);
+    const cachedEvent = await this.findActiveEventForMutation(eventId);
 
     if (!cachedEvent) {
       return null;
@@ -85,7 +85,7 @@ export class EventService {
       start: input.start,
       end: input.end,
     });
-    const existingEvent = await this.eventMapRepository.findById(eventId, ['active']);
+    const existingEvent = await this.findActiveEventForMutation(eventId);
 
     if (!existingEvent) {
       throw new Error('That event is no longer available in the recent event cache.');
@@ -158,7 +158,7 @@ export class EventService {
   }
 
   async deleteEvent(eventId: string): Promise<GoogleCalendarEventRecord> {
-    const event = await this.eventMapRepository.findById(eventId, ['active']);
+    const event = await this.findActiveEventForMutation(eventId);
 
     if (!event) {
       throw new Error('That event is no longer available in the recent event cache.');
@@ -205,6 +205,22 @@ export class EventService {
     });
 
     return suggestions;
+  }
+
+  private async findActiveEventForMutation(eventId: string) {
+    const cachedEvent = await this.eventMapRepository.findById(eventId, ['active']);
+
+    if (cachedEvent) {
+      return cachedEvent;
+    }
+
+    try {
+      const freshEvent = await this.googleCalendarClient.getEvent(eventId);
+      await this.eventMapRepository.upsert(freshEvent);
+      return freshEvent.eventStatus === 'active' ? freshEvent : null;
+    } catch {
+      return null;
+    }
   }
 }
 

@@ -8,8 +8,13 @@ try {
     consoleLevel: config.logLevel,
     discordLevel: config.discordLogLevel,
   }).child({ subsystem: 'migrate' });
-  runMigrations(config);
-  logger.info('Migrations applied', { databasePath: config.databasePath });
+  const result = runMigrations(config);
+  logger.info('Migrations applied', {
+    databasePath: result.databasePath,
+    verificationIssueCount: result.verification.issuesDetected.length,
+    repairCount: result.repairsApplied.length,
+    repairsApplied: result.repairsApplied,
+  });
 } catch (error) {
   createLogger({ consoleLevel: 'debug', discordLevel: 'error' }).error('Migration failed', error, {
     subsystem: 'migrate',

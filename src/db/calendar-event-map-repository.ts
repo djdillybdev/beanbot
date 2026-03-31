@@ -108,6 +108,21 @@ export class CalendarEventMapRepository {
 
     return rows.map(mapRowToEventRecord);
   }
+
+  async getCacheSummary() {
+    const rows = await this.db.query.calendarEventMap.findMany();
+
+    return {
+      totalCount: rows.length,
+      activeCount: rows.filter((row) => row.eventStatus === 'active').length,
+      deletedCount: rows.filter((row) => row.eventStatus === 'deleted').length,
+      recurringCount: rows.filter((row) => row.isRecurring).length,
+      latestUpdatedAtUtc: rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAtUtc > latest ? row.updatedAtUtc : latest),
+        null,
+      ),
+    };
+  }
 }
 
 function mapRowToEventRecord(row: typeof calendarEventMap.$inferSelect): GoogleCalendarEventRecord {

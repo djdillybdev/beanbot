@@ -101,7 +101,7 @@ export class TaskService {
     | { status: 'no_match'; resolution: TaskCompletionResolution }
     | { status: 'ambiguous'; resolution: TaskCompletionResolution }
   > {
-    const taskById = await this.taskMapRepository.findById(query, ['active']);
+    const taskById = await this.findActiveTaskForMutation(query);
 
     if (taskById) {
       await this.todoistClient.closeTask(taskById.id);
@@ -182,7 +182,7 @@ export class TaskService {
   }
 
   async getTaskForEdit(taskId: string): Promise<TodoistTaskRecord | null> {
-    const cachedTask = await this.taskMapRepository.findById(taskId, ['active']);
+    const cachedTask = await this.findActiveTaskForMutation(taskId);
 
     if (!cachedTask) {
       return null;
@@ -206,7 +206,7 @@ export class TaskService {
       labelCount: input.labels?.length ?? 0,
       priority: input.priority,
     });
-    const existingTask = await this.taskMapRepository.findById(taskId, ['active']);
+    const existingTask = await this.findActiveTaskForMutation(taskId);
 
     if (!existingTask) {
       throw new Error('That task is no longer available in the recent active cache.');
@@ -303,7 +303,7 @@ export class TaskService {
   }
 
   async deleteTask(taskId: string): Promise<TodoistTaskRecord> {
-    const task = await this.taskMapRepository.findById(taskId, ['active']);
+    const task = await this.findActiveTaskForMutation(taskId);
 
     if (!task) {
       throw new Error('That task is no longer available in the recent active cache.');
@@ -328,7 +328,17 @@ export class TaskService {
     const task = await this.taskMapRepository.findById(taskId, ['completed']);
 
     if (!task) {
-      throw new Error('That task is not available in the recent completed cache.');
+      if (isLikelyTodoistId(taskId)) {
+        await this.todoistClient.reopenTask(taskId);
+        const reopenedTask = await this.todoistClient.getTask(taskId);
+        await this.taskMapRepository.upsert(reopenedTask);
+        await this.deleteLatestHabitCompletion(taskId);
+        await this.reminderService?.syncTask(reopenedTask);
+        this.todayStatusRefreshNotifier?.requestRefresh('task.reopen');
+        return reopenedTask;
+      }
+
+      throw new Error('That task is not available in the recent completed cache. Try reopening it from a recent autocomplete result.');
     }
 
     await this.todoistClient.reopenTask(taskId);
@@ -455,6 +465,26 @@ export class TaskService {
   private async deleteLatestHabitCompletion(taskId: string) {
     await this.habitService?.deleteLatestCompletionForTask(taskId);
   }
+
+  private async findActiveTaskForMutation(taskId: string) {
+    const cachedTask = await this.taskMapRepository.findById(taskId, ['active']);
+
+    if (cachedTask) {
+      return cachedTask;
+    }
+
+    if (!isLikelyTodoistId(taskId)) {
+      return null;
+    }
+
+    try {
+      const freshTask = await this.todoistClient.getTask(taskId);
+      await this.taskMapRepository.upsert(freshTask);
+      return freshTask.taskStatus === 'active' ? freshTask : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 function rankAutocompleteTasks(tasks: TodoistTaskRecord[], normalizedQuery: string) {
@@ -527,4 +557,8 @@ function sameLabels(left: string[], right: string[]) {
   }
 
   return left.every((label, index) => label === right[index]);
+}
+
+function isLikelyTodoistId(value: string) {
+  return /^[0-9]{6,}$/.test(value.trim());
 }

@@ -9,6 +9,10 @@
     "start": "bun run src/index.ts",
     "test": "bun test",
     "register:commands": "bun run src/scripts/register-commands.ts",
+    "admin:health": "bun run src/scripts/admin-health.ts",
+    "admin:obsidian:status": "bun run src/scripts/admin-obsidian-status.ts",
+    "admin:obsidian:sync-once": "bun run src/scripts/admin-obsidian-sync-once.ts",
+    "admin:cache:inspect": "bun run src/scripts/admin-cache-inspect.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/scripts/migrate.ts",
     "typecheck": "tsc --noEmit"

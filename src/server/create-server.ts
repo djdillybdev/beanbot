@@ -2,23 +2,41 @@ import express from 'express';
 
 import type { AppConfig } from '../config';
 import { OAuthTokenRepository } from '../db/oauth-token-repository';
+import { CalendarEventMapRepository } from '../db/calendar-event-map-repository';
+import { HabitRepository } from '../db/habit-repository';
+import { ObsidianSyncStateRepository } from '../db/obsidian-sync-state-repository';
+import { ReminderJobRepository } from '../db/reminder-job-repository';
+import { TodoistTaskMapRepository } from '../db/todoist-task-map-repository';
 import { GoogleCalendarOAuthService } from '../integrations/google-calendar/oauth';
 import { TodoistOAuthService } from '../integrations/todoist/oauth';
 import type { Logger } from '../logging/logger';
+import type { SubsystemHealthRegistry } from '../runtime/subsystem-health';
 
 interface CreateServerDependencies {
   config: AppConfig;
   tokenRepository: OAuthTokenRepository;
+  todoistTaskMapRepository: TodoistTaskMapRepository;
+  calendarEventMapRepository: CalendarEventMapRepository;
+  habitRepository: HabitRepository;
+  reminderJobRepository: ReminderJobRepository;
+  obsidianSyncStateRepository: ObsidianSyncStateRepository;
   todoistOAuthService: TodoistOAuthService;
   googleCalendarOAuthService: GoogleCalendarOAuthService;
+  healthRegistry: SubsystemHealthRegistry;
   logger: Logger;
 }
 
 export function createServer({
   config,
   tokenRepository,
+  todoistTaskMapRepository,
+  calendarEventMapRepository,
+  habitRepository,
+  reminderJobRepository,
+  obsidianSyncStateRepository,
   todoistOAuthService,
   googleCalendarOAuthService,
+  healthRegistry,
   logger,
 }: CreateServerDependencies) {
   const app = express();
@@ -28,17 +46,41 @@ export function createServer({
       tokenRepository.getByProvider('todoist'),
       tokenRepository.getByProvider('google-calendar'),
     ]);
+    const [taskCache, eventCache, habitSummary, reminderSummary, obsidianState] = await Promise.all([
+      todoistTaskMapRepository.getCacheSummary(),
+      calendarEventMapRepository.getCacheSummary(),
+      habitRepository.getSummary(),
+      reminderJobRepository.getSummary(),
+      obsidianSyncStateRepository.getState(),
+    ]);
+    const runtime = healthRegistry.getSnapshot();
 
     response.json({
-      status: 'ok',
+      status: runtime.status,
       service: 'beanbot',
       environment: config.env.NODE_ENV,
       guildId: config.env.DISCORD_GUILD_ID,
+      startedAtUtc: runtime.startedAtUtc,
+      startupComplete: runtime.startupComplete,
       todoistConnected: todoistToken !== null,
       googleCalendarConnected: googleToken !== null,
+      subsystems: runtime.subsystems,
+      caches: {
+        tasks: taskCache,
+        events: eventCache,
+      },
+      habits: habitSummary,
+      reminders: reminderSummary,
+      obsidian: {
+        lastFullSyncAtUtc: obsidianState?.lastFullSyncAtUtc ?? null,
+        lastIncrementalSyncAtUtc: obsidianState?.lastIncrementalSyncAtUtc ?? null,
+        lastVaultScanAtUtc: obsidianState?.lastVaultScanAtUtc ?? null,
+        lastIncrementalCursorPresent: Boolean(obsidianState?.lastIncrementalCursor),
+      },
       timestamp: new Date().toISOString(),
     });
     logger.debug('Served health check', {
+      status: runtime.status,
       todoistConnected: todoistToken !== null,
       googleCalendarConnected: googleToken !== null,
     });

@@ -140,6 +140,21 @@ export class ReminderJobRepository {
         ),
       );
   }
+
+  async getSummary(nowUtc = new Date().toISOString()) {
+    const rows = await this.db.query.reminderJobs.findMany();
+
+    return {
+      totalCount: rows.length,
+      pendingCount: rows.filter((row) => row.status === 'pending').length,
+      failedCount: rows.filter((row) => row.status === 'failed').length,
+      duePendingCount: rows.filter((row) => row.status === 'pending' && row.remindAtUtc <= nowUtc).length,
+      latestUpdatedAtUtc: rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAtUtc > latest ? row.updatedAtUtc : latest),
+        null,
+      ),
+    };
+  }
 }
 
 function mapRowToReminderJobRecord(row: typeof reminderJobs.$inferSelect): ReminderJobRecord {

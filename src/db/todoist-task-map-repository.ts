@@ -159,6 +159,21 @@ export class TodoistTaskMapRepository {
         updatedAtUtc: row.updatedAtUtc,
       }));
   }
+
+  async getCacheSummary() {
+    const rows = await this.db.query.todoistTaskMap.findMany();
+
+    return {
+      totalCount: rows.length,
+      activeCount: rows.filter((row) => row.taskStatus === 'active').length,
+      completedCount: rows.filter((row) => row.taskStatus === 'completed').length,
+      deletedCount: rows.filter((row) => row.taskStatus === 'deleted').length,
+      latestUpdatedAtUtc: rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAtUtc > latest ? row.updatedAtUtc : latest),
+        null,
+      ),
+    };
+  }
 }
 
 function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTaskRecord {

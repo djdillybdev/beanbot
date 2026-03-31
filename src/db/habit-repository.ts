@@ -105,6 +105,20 @@ export class HabitRepository {
     return rows.map(mapRow);
   }
 
+  async getSummary() {
+    const rows = await this.db.query.habit.findMany();
+
+    return {
+      totalCount: rows.length,
+      activeCount: rows.filter((row) => row.isActive).length,
+      unparsedActiveCount: rows.filter((row) => row.isActive && row.scheduleKind === 'unparsed').length,
+      latestUpdatedAtUtc: rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAtUtc > latest ? row.updatedAtUtc : latest),
+        null,
+      ),
+    };
+  }
+
   async updateMetrics(habitId: number, metrics: HabitMetrics) {
     await this.db
       .update(habit)

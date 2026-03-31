@@ -45,6 +45,8 @@ import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 import { HabitService } from './app/habits/habit-service';
 import { startObsidianSyncRuntime } from './app/obsidian/obsidian-sync-runner';
+import { ObsidianSyncStateRepository } from './db/obsidian-sync-state-repository';
+import { SubsystemHealthRegistry } from './runtime/subsystem-health';
 
 async function main() {
   const config = createConfig();
@@ -53,13 +55,26 @@ async function main() {
     discordLevel: config.discordLogLevel,
   });
   const startupLogger = logger.child({ subsystem: 'startup' });
+  const healthRegistry = new SubsystemHealthRegistry();
 
   startupLogger.info('Starting Beanbot foundation services', {
     environment: config.env.NODE_ENV,
     timezone: config.timezone,
   });
-  runMigrations(config);
-  startupLogger.info('Database migrations applied', { databasePath: config.databasePath });
+  healthRegistry.markStarting('migrations', 'Applying database migrations.');
+  const migrationResult = runMigrations(config);
+  healthRegistry.markHealthy('migrations', 'Database migrations applied.', {
+    databasePath: migrationResult.databasePath,
+    verificationIssueCount: migrationResult.verification.issuesDetected.length,
+    repairCount: migrationResult.repairsApplied.length,
+    repairsApplied: migrationResult.repairsApplied,
+  });
+  startupLogger.info('Database migrations applied', {
+    databasePath: migrationResult.databasePath,
+    verificationIssueCount: migrationResult.verification.issuesDetected.length,
+    repairCount: migrationResult.repairsApplied.length,
+    repairsApplied: migrationResult.repairsApplied,
+  });
 
   const db = createDb(config);
   const actionLogRepository = new ActionLogRepository(db);
@@ -70,6 +85,7 @@ async function main() {
   const habitCompletionRepository = new HabitCompletionRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
   const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
+  const obsidianSyncStateRepository = new ObsidianSyncStateRepository(db);
   const eventDraftStore = new EventDraftStore();
   const todayStatusRefreshNotifier = new TodayStatusRefreshNotifier(
     logger.child({ subsystem: 'today-status-refresh-notifier' }),
@@ -87,6 +103,7 @@ async function main() {
     db,
     todoistClient,
     logger,
+    healthRegistry,
   );
   const reminderService = new ReminderService(
     config,
@@ -131,17 +148,42 @@ async function main() {
     logger.child({ subsystem: 'today-review' }),
   );
 
-  await registerGuildCommands(config);
-  startupLogger.info('Guild commands registered', { guildId: config.env.DISCORD_GUILD_ID });
+  healthRegistry.markStarting('command-registration', 'Registering guild commands.');
+  try {
+    await registerGuildCommands(config);
+    healthRegistry.markHealthy('command-registration', 'Guild commands registered.', {
+      guildId: config.env.DISCORD_GUILD_ID,
+    });
+    startupLogger.info('Guild commands registered', { guildId: config.env.DISCORD_GUILD_ID });
+  } catch (error) {
+    healthRegistry.markDegraded('command-registration', error, {
+      guildId: config.env.DISCORD_GUILD_ID,
+    });
+    startupLogger.error('Guild command registration failed; continuing startup', error, {
+      guildId: config.env.DISCORD_GUILD_ID,
+    });
+  }
 
   const server = createServer({
     config,
     tokenRepository,
+    todoistTaskMapRepository,
+    calendarEventMapRepository,
+    habitRepository,
+    reminderJobRepository,
+    obsidianSyncStateRepository,
     todoistOAuthService,
     googleCalendarOAuthService,
+    healthRegistry,
     logger: logger.child({ subsystem: 'server' }),
   });
+  healthRegistry.markStarting('http-server', 'Starting HTTP server.');
   const httpServer = server.listen(config.port, config.host, () => {
+    healthRegistry.markHealthy('http-server', 'HTTP server listening.', {
+      host: config.host,
+      port: config.port,
+      publicBaseUrl: config.publicBaseUrl,
+    });
     startupLogger.info('Express server listening', {
       host: config.host,
       port: config.port,
@@ -157,7 +199,9 @@ async function main() {
     eventDraftStore,
     logger: logger.child({ subsystem: 'bot-handlers' }),
   });
+  healthRegistry.markStarting('discord-client', 'Starting Discord client.');
   await discord.start();
+  healthRegistry.markHealthy('discord-client', 'Discord client is ready.');
   const todayStatusService = new LiveStatusService({
     client: discord.client,
     channelId: config.todayChannelId,
@@ -247,21 +291,45 @@ async function main() {
       await upcomingStatusService.refreshCurrentStatus(reason);
     }
   });
-  await weekStatusService.refreshCurrentStatus('startup');
-  await monthStatusService.refreshCurrentStatus('startup');
-  await habitsStatusService.refreshCurrentStatus('startup');
-  await undatedStatusService.refreshCurrentStatus('startup');
-  await upcomingStatusService.refreshCurrentStatus('startup');
+  healthRegistry.markStarting('status-bootstrap', 'Refreshing live status messages.');
+  try {
+    await weekStatusService.refreshCurrentStatus('startup');
+    await monthStatusService.refreshCurrentStatus('startup');
+    await habitsStatusService.refreshCurrentStatus('startup');
+    await undatedStatusService.refreshCurrentStatus('startup');
+    await upcomingStatusService.refreshCurrentStatus('startup');
+    healthRegistry.markHealthy('status-bootstrap', 'Live status messages refreshed.');
+  } catch (error) {
+    healthRegistry.markDegraded('status-bootstrap', error);
+    startupLogger.error('Live status bootstrap failed; continuing startup', error);
+  }
   if (config.logsChannelId) {
-    await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
+    healthRegistry.markStarting('discord-log-sink', 'Attaching Discord log channel.');
+    try {
+      await logger.attachDiscordChannel(discord.client, config.logsChannelId, 'LOGS_CHANNEL_ID');
+      healthRegistry.markHealthy('discord-log-sink', 'Discord log channel attached.', {
+        channelId: config.logsChannelId,
+      });
+    } catch (error) {
+      healthRegistry.markDegraded('discord-log-sink', error, {
+        channelId: config.logsChannelId,
+      });
+      startupLogger.error('Failed to attach Discord log channel; continuing startup', error, {
+        channelId: config.logsChannelId,
+      });
+    }
   } else {
+    healthRegistry.markDisabled('discord-log-sink', 'LOGS_CHANNEL_ID is not configured.');
     startupLogger.warn('Discord log channel disabled because LOGS_CHANNEL_ID is not configured.');
   }
+  healthRegistry.markStarting('today-digest-scheduler', 'Starting today digest scheduler.');
   const digestScheduler = startTodayDigestScheduler(
     config,
     todayStatusService,
     logger.child({ subsystem: 'today-digest' }),
   );
+  healthRegistry.markHealthy('today-digest-scheduler', 'Today digest scheduler started.');
+  healthRegistry.markStarting('status-refresh-schedulers', 'Starting live status refresh schedulers.');
   const todayStatusRefreshScheduler = startTodayStatusRefreshScheduler(
     todayStatusService,
     logger.child({ subsystem: 'today-status-refresh' }),
@@ -292,11 +360,18 @@ async function main() {
     logger.child({ subsystem: 'upcoming-status-refresh' }),
     'upcoming',
   );
+  healthRegistry.markHealthy('status-refresh-schedulers', 'Live status refresh schedulers started.');
+  healthRegistry.markStarting('reminder-scheduler', 'Starting reminder scheduler.');
   const reminderScheduler = startReminderScheduler(
     discord.client,
     reminderService,
     logger.child({ subsystem: 'reminder-scheduler' }),
   );
+  healthRegistry.markHealthy('reminder-scheduler', 'Reminder scheduler started.');
+  healthRegistry.setStartupComplete();
+  startupLogger.info('Startup sequence completed', {
+    overallStatus: healthRegistry.getSnapshot().status,
+  });
 
   const shutdown = async (signal: string) => {
     startupLogger.info('Received shutdown signal', { signal });

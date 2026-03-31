@@ -19,4 +19,11 @@ export class ObsidianSyncEventRepository {
       result: input.result ?? null,
     });
   }
+
+  async listRecent(limit = 10) {
+    return this.db.query.obsidianSyncEvent.findMany({
+      orderBy: (table, { desc }) => [desc(table.createdAtUtc)],
+      limit,
+    });
+  }
 }

@@ -1,94 +1,76 @@
 import type { AppConfig } from '../../config';
-import { ObsidianNoteIndexRepository } from '../../db/obsidian-note-index-repository';
-import { ObsidianSyncEventRepository } from '../../db/obsidian-sync-event-repository';
-import { ObsidianSyncStateRepository } from '../../db/obsidian-sync-state-repository';
-import { ObsidianTaskRepository } from '../../db/obsidian-task-repository';
 import type { Database } from '../../db/types';
-import { ObsidianVaultAdapter } from '../../integrations/obsidian/vault-adapter';
 import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
-import { ObsidianLocalCreateService } from './obsidian-local-create-service';
-import { ObsidianLocalScanService } from './obsidian-local-scan';
-import { ObsidianPendingDeleteService } from './obsidian-pending-delete-service';
-import { ObsidianPendingPushService } from './obsidian-pending-push-service';
-import { ObsidianSyncService } from './obsidian-sync-service';
+import { SubsystemHealthRegistry } from '../../runtime/subsystem-health';
+import { createObsidianSyncContext } from './obsidian-sync-context';
 
 export interface ObsidianSyncRuntime {
   stop(): void;
+  runOnceNow(): Promise<void>;
 }
+
+const INITIAL_RETRY_DELAY_MS = 5_000;
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
 export async function startObsidianSyncRuntime(
   config: AppConfig,
   db: Database,
   todoistClient: TodoistClient,
   logger: Logger,
+  healthRegistry: SubsystemHealthRegistry,
 ): Promise<ObsidianSyncRuntime> {
   const runtimeLogger = logger.child({ subsystem: 'obsidian-sync' });
+  const subsystemName = 'obsidian-sync';
 
   if (!config.obsidianVaultPath) {
     runtimeLogger.info('Obsidian sync disabled because OBSIDIAN_VAULT_PATH is not configured.');
+    healthRegistry.markDisabled(subsystemName, 'OBSIDIAN_VAULT_PATH is not configured.');
     return {
       stop() {},
+      async runOnceNow() {},
     };
   }
 
-  const taskRepository = new ObsidianTaskRepository(db);
-  const noteIndexRepository = new ObsidianNoteIndexRepository(db);
-  const syncStateRepository = new ObsidianSyncStateRepository(db);
-  const syncEventRepository = new ObsidianSyncEventRepository(db);
-  const vaultAdapter = new ObsidianVaultAdapter(
-    config.obsidianVaultPath,
-    config.obsidianTasksPath,
-    config.timezone,
-    runtimeLogger.child({ subsystem: 'vault-export' }),
-  );
-  const localCreateService = new ObsidianLocalCreateService(
+  const { syncService, syncStateRepository } = createObsidianSyncContext(
     config,
+    db,
     todoistClient,
-    taskRepository,
-    noteIndexRepository,
-    syncEventRepository,
-    runtimeLogger.child({ subsystem: 'vault-create' }),
-  );
-  const localScanService = new ObsidianLocalScanService(
-    config,
-    noteIndexRepository,
-    taskRepository,
-    syncEventRepository,
-    syncStateRepository,
-    localCreateService,
-    runtimeLogger.child({ subsystem: 'vault-scan' }),
-  );
-  const pendingDeleteService = new ObsidianPendingDeleteService(
-    todoistClient,
-    taskRepository,
-    noteIndexRepository,
-    syncEventRepository,
-    runtimeLogger.child({ subsystem: 'pending-delete' }),
-  );
-  const pendingPushService = new ObsidianPendingPushService(
-    todoistClient,
-    taskRepository,
-    syncEventRepository,
-    runtimeLogger.child({ subsystem: 'pending-push' }),
-  );
-  const syncService = new ObsidianSyncService(
-    config,
-    todoistClient,
-    taskRepository,
-    noteIndexRepository,
-    syncStateRepository,
-    syncEventRepository,
-    localScanService,
-    pendingDeleteService,
-    pendingPushService,
-    vaultAdapter,
     runtimeLogger,
   );
 
   let isRunning = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let retryCount = 0;
 
-  const runPass = async () => {
+  const scheduleNext = (delayMs: number) => {
+    if (stopped) {
+      return;
+    }
+
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    timer = setTimeout(() => {
+      void runPass('scheduled');
+    }, delayMs);
+  };
+
+  const updateHealthyMetadata = async () => {
+    const state = await syncStateRepository.getState();
+    healthRegistry.markHealthy(subsystemName, 'Obsidian sync is healthy.', {
+      pollIntervalSeconds: config.obsidianSyncPollIntervalSeconds,
+      vaultPath: config.obsidianVaultPath,
+      tasksPath: config.obsidianTasksPath,
+      lastFullSyncAtUtc: state?.lastFullSyncAtUtc ?? null,
+      lastIncrementalSyncAtUtc: state?.lastIncrementalSyncAtUtc ?? null,
+      lastVaultScanAtUtc: state?.lastVaultScanAtUtc ?? null,
+    });
+  };
+
+  const runPass = async (reason: 'startup' | 'scheduled' | 'manual') => {
     if (isRunning) {
       runtimeLogger.warn('Skipping Obsidian sync pass because the previous pass is still running.');
       return;
@@ -96,27 +78,71 @@ export async function startObsidianSyncRuntime(
 
     isRunning = true;
     try {
+      healthRegistry.markStarting(subsystemName, `Running Obsidian sync pass (${reason}).`, {
+        retryCount,
+      });
       await syncService.runOnce();
+      retryCount = 0;
+      await updateHealthyMetadata();
+      scheduleNext(config.obsidianSyncPollIntervalSeconds * 1000);
     } finally {
       isRunning = false;
     }
   };
 
-  await runPass();
+  const handleRetry = (error: unknown) => {
+    retryCount += 1;
+    const delayMs = Math.min(
+      INITIAL_RETRY_DELAY_MS * 2 ** Math.max(retryCount - 1, 0),
+      MAX_RETRY_DELAY_MS,
+    );
+    const nextRetryAtUtc = new Date(Date.now() + delayMs).toISOString();
+    healthRegistry.markDegraded(subsystemName, error, {
+      retryCount,
+      nextRetryAtUtc,
+      pollIntervalSeconds: config.obsidianSyncPollIntervalSeconds,
+      vaultPath: config.obsidianVaultPath,
+      tasksPath: config.obsidianTasksPath,
+    });
+    runtimeLogger.error('Obsidian sync pass failed; scheduling retry', error, {
+      retryCount,
+      nextRetryAtUtc,
+    });
+    scheduleNext(delayMs);
+  };
 
-  const intervalId = setInterval(() => {
-    void runPass();
-  }, config.obsidianSyncPollIntervalSeconds * 1000);
+  const executeManagedPass = async (reason: 'startup' | 'scheduled') => {
+    try {
+      await runPass(reason);
+      if (reason === 'startup') {
+        runtimeLogger.info('Obsidian sync runner started', {
+          pollIntervalSeconds: config.obsidianSyncPollIntervalSeconds,
+          vaultPath: config.obsidianVaultPath,
+          tasksPath: config.obsidianTasksPath,
+        });
+      }
+    } catch (error) {
+      handleRetry(error);
+    }
+  };
 
-  runtimeLogger.info('Obsidian sync runner started', {
-    pollIntervalSeconds: config.obsidianSyncPollIntervalSeconds,
-    vaultPath: config.obsidianVaultPath,
-    tasksPath: config.obsidianTasksPath,
-  });
+  void executeManagedPass('startup');
 
   return {
     stop() {
-      clearInterval(intervalId);
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    async runOnceNow() {
+      try {
+        await runPass('manual');
+      } catch (error) {
+        handleRetry(error);
+        throw error;
+      }
     },
   };
 }
