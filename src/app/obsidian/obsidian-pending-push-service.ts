@@ -41,6 +41,22 @@ export class ObsidianPendingPushService {
     return { pushedTaskCount };
   }
 
+  async retryTask(todoistTaskId: string) {
+    const task = await this.taskRepository.getByTaskId(todoistTaskId);
+
+    if (!task) {
+      throw new Error(`No tracked Obsidian task found for ${todoistTaskId}.`);
+    }
+
+    await this.pushTask(task);
+
+    return {
+      taskId: todoistTaskId,
+      syncStatus: 'synced',
+      result: 'success' as const,
+    };
+  }
+
   private async pushTask(task: ObsidianExportTask) {
     const labels = mergeReservedLabels(task.project, task.effort, task.labels);
     await this.todoistClient.getTask(task.todoistTaskId);

@@ -79,7 +79,11 @@ bun run dev
 - `GET /health` is the machine-oriented runtime diagnostics endpoint
 - `bun run admin:health` prints a local operator summary and supports `--json`
 - `bun run admin:obsidian:status` prints Obsidian sync diagnostics and supports `--json`
+- `bun run admin:obsidian:conflicts` lists tracked Obsidian conflicts and repair hints
+- `bun run admin:obsidian:resolve <task_id> <retry-push|retry-delete|re-export>` runs a bounded Obsidian repair action
 - `bun run admin:cache:inspect` prints cache freshness diagnostics and supports `--json`
+- `bun run admin:cache:rebuild [all|tasks|events]` rebuilds cache entries from providers
+- `bun run admin:reminders:retry-failed` resets failed reminder jobs back to pending
 - `bun run admin:obsidian:sync-once` runs one Obsidian sync pass with the current local config
 
 `/health` includes overall runtime status, per-subsystem state, migration health, provider connectivity, cache freshness, reminder summary, habit summary, and persisted Obsidian sync timestamps. The admin scripts are the human-facing diagnostics layer; `/health` is intended to stay stable for scripts and lightweight dashboards.
@@ -119,6 +123,8 @@ This currently supports Milestone 3 writeback for existing synced notes:
 - `/event add` opens a guided Google Calendar event creation flow
 - `/event edit` opens a guided editor for a recent one-off Google Calendar event
 - `/event delete` deletes a recent one-off Google Calendar event
+- `/admin ...` is an admin-only recovery surface for guild administrators:
+  health, cache inspect/rebuild, reminders inspect/retry-failed, and Obsidian status/sync/conflict repair
 
 ## Inbox capture
 

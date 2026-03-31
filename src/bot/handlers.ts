@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   MessageFlags,
   ModalBuilder,
+  PermissionFlagsBits,
   type Message,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
@@ -38,6 +39,11 @@ import {
   buildTaskResolutionMessage,
 } from './renderers/task';
 import type { Logger } from '../logging/logger';
+import type {
+  ObsidianConflictSummary,
+  ObsidianResolveAction,
+  OperatorService,
+} from '../app/admin/operator-service';
 
 const TASK_EDIT_MODAL_PREFIX = 'task-edit:';
 const EVENT_ADD_DETAILS_MODAL_PREFIX = 'event-add-details:';
@@ -60,6 +66,7 @@ export interface CommandDependencies {
   todayReviewService: TodayReviewService;
   taskService: TaskService;
   eventService: EventService;
+  operatorService: OperatorService;
   eventDraftStore: EventDraftStore;
   logger: Logger;
 }
@@ -78,6 +85,7 @@ export async function handleChatInputCommand(
   }
 
   if (interaction.commandName === 'help') {
+    const isAdmin = isGuildAdmin(interaction);
     await interaction.reply({
       content: [
         'Beanbot commands:',
@@ -96,6 +104,14 @@ export async function handleChatInputCommand(
         '`/event add` opens a guided event creation flow.',
         '`/event edit` opens a guided edit flow for a recent event.',
         '`/event delete` deletes a recent event.',
+        ...(isAdmin
+          ? [
+              '`/admin health` shows runtime and subsystem health.',
+              '`/admin cache inspect|rebuild` inspects or rebuilds local caches.',
+              '`/admin reminders inspect|retry-failed` inspects and retries reminder jobs.',
+              '`/admin obsidian status|sync-once|conflicts|resolve` manages Obsidian sync recovery.',
+            ]
+          : []),
         '',
         'Inbox capture:',
         '- Every non-bot message in `#inbox` is treated as a new Todoist task via quick add.',
@@ -338,6 +354,123 @@ export async function handleChatInputCommand(
 
       await interaction.reply({
         embeds: [buildEventDeleteSuccessEmbed(event)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
+  if (interaction.commandName === 'admin') {
+    if (!isGuildAdmin(interaction)) {
+      await interaction.reply({
+        content: 'Only Discord guild administrators can use `/admin` commands.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const group = interaction.options.getSubcommandGroup(false);
+    const subcommand = interaction.options.getSubcommand(true);
+
+    if (!group && subcommand === 'health') {
+      const snapshot = await dependencies.operatorService.getHealthSnapshot();
+      await interaction.reply({
+        content: renderAdminHealth(snapshot),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'cache' && subcommand === 'inspect') {
+      const cache = await dependencies.operatorService.inspectCaches();
+      await interaction.reply({
+        content: renderCacheInspection(cache),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'cache' && subcommand === 'rebuild') {
+      const target = interaction.options.getString('target', true) as 'tasks' | 'events' | 'all';
+      const result = await dependencies.operatorService.rebuildCaches(target);
+      await interaction.reply({
+        content: [
+          'Cache rebuild completed.',
+          `Target: ${result.target}`,
+          `Tasks rebuilt: ${result.taskCount}`,
+          `Events rebuilt: ${result.eventCount}`,
+          `Duration: ${result.durationMs}ms`,
+        ].join('\n'),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'reminders' && subcommand === 'inspect') {
+      const reminders = await dependencies.operatorService.inspectReminders();
+      await interaction.reply({
+        content: renderReminderInspection(reminders),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'reminders' && subcommand === 'retry-failed') {
+      const result = await dependencies.operatorService.retryFailedReminders();
+      await interaction.reply({
+        content: [
+          'Reminder retry completed.',
+          `Failed jobs reset: ${result.retriedCount}`,
+          `Pending now: ${result.summary.pendingCount}`,
+          `Failed now: ${result.summary.failedCount}`,
+        ].join('\n'),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'obsidian' && subcommand === 'status') {
+      const status = await dependencies.operatorService.getObsidianStatus();
+      await interaction.reply({
+        content: renderObsidianStatus(status),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'obsidian' && subcommand === 'sync-once') {
+      const result = await dependencies.operatorService.runObsidianSyncOnce();
+      await interaction.reply({
+        content: [
+          'Obsidian sync pass completed.',
+          `Duration: ${result.durationMs}ms`,
+          `Last incremental sync: ${result.state?.lastIncrementalSyncAtUtc ?? 'n/a'}`,
+        ].join('\n'),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'obsidian' && subcommand === 'conflicts') {
+      const conflicts = await dependencies.operatorService.listObsidianConflicts();
+      await interaction.reply({
+        content: renderObsidianConflicts(conflicts),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (group === 'obsidian' && subcommand === 'resolve') {
+      const taskId = interaction.options.getString('task_id', true);
+      const action = interaction.options.getString('action', true) as ObsidianResolveAction;
+      const result = await dependencies.operatorService.resolveObsidianConflict(taskId, action);
+      await interaction.reply({
+        content: [
+          'Obsidian repair completed.',
+          `Task id: ${result.taskId}`,
+          `Action: ${result.requestedAction}`,
+          `Conflict kind: ${result.conflictKind}`,
+        ].join('\n'),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1185,4 +1318,74 @@ function splitLocalDateTime(value: string) {
   }
 
   return { date, hour, minute };
+}
+
+function isGuildAdmin(interaction: ChatInputCommandInteraction) {
+  return interaction.inGuild() && Boolean(interaction.memberPermissions?.has(PermissionFlagsBits.Administrator));
+}
+
+function renderAdminHealth(snapshot: Awaited<ReturnType<OperatorService['getHealthSnapshot']>>) {
+  return [
+    `Runtime: ${snapshot.overall.status}`,
+    `Startup complete: ${snapshot.startupComplete}`,
+    `Degraded subsystems: ${snapshot.overall.degradedSubsystems.join(', ') || 'none'}`,
+    `Failed subsystems: ${snapshot.overall.failedSubsystems.join(', ') || 'none'}`,
+    `Todoist: ${snapshot.providers.todoist.status}`,
+    `Google Calendar: ${snapshot.providers.googleCalendar.status}`,
+    `Task cache: ${snapshot.caches.tasks.freshness} (${snapshot.caches.tasks.totalCount} entries)`,
+    `Event cache: ${snapshot.caches.events.freshness} (${snapshot.caches.events.totalCount} entries)`,
+    `Reminders: ${snapshot.reminders.status} (${snapshot.reminders.pendingCount} pending / ${snapshot.reminders.failedCount} failed)`,
+    `Obsidian: ${snapshot.obsidian.status}`,
+  ].join('\n');
+}
+
+function renderCacheInspection(snapshot: Awaited<ReturnType<OperatorService['inspectCaches']>>) {
+  return [
+    `Task cache: ${snapshot.tasks.freshness}`,
+    `- total ${snapshot.tasks.totalCount}, active ${snapshot.tasks.activeCount}, completed ${snapshot.tasks.completedCount}, deleted ${snapshot.tasks.deletedCount}`,
+    `- latest update ${snapshot.tasks.latestUpdatedAtUtc ?? 'never'} (${snapshot.tasks.latestUpdatedAgeLabel} ago)`,
+    `Event cache: ${snapshot.events.freshness}`,
+    `- total ${snapshot.events.totalCount}, active ${snapshot.events.activeCount}, deleted ${snapshot.events.deletedCount}, recurring ${snapshot.events.recurringCount}`,
+    `- latest update ${snapshot.events.latestUpdatedAtUtc ?? 'never'} (${snapshot.events.latestUpdatedAgeLabel} ago)`,
+  ].join('\n');
+}
+
+function renderReminderInspection(snapshot: Awaited<ReturnType<OperatorService['inspectReminders']>>) {
+  const failedLines = snapshot.failedJobs.slice(0, 5).map((job) => `- ${job.id} (${job.reminderKind}) updated ${job.updatedAtUtc}`);
+  return [
+    `Reminder status: ${snapshot.summary.status}`,
+    `Pending: ${snapshot.summary.pendingCount}`,
+    `Due now: ${snapshot.summary.duePendingCount}`,
+    `Failed: ${snapshot.summary.failedCount}`,
+    `Latest update: ${snapshot.summary.latestUpdatedAtUtc ?? 'never'} (${snapshot.summary.latestUpdatedAgeLabel} ago)`,
+    failedLines.length > 0 ? 'Recent failed jobs:' : 'Recent failed jobs: none',
+    ...failedLines,
+  ].join('\n');
+}
+
+function renderObsidianStatus(snapshot: Awaited<ReturnType<OperatorService['getObsidianStatus']>>) {
+  const eventLines = snapshot.recentEvents
+    .slice(0, 5)
+    .map((event) => `- ${event.createdAtUtc} ${event.eventType} [${event.result ?? 'n/a'}]`);
+  return [
+    `Obsidian status: ${snapshot.diagnostics.status}`,
+    `Runner state: ${snapshot.runtimeSubsystem?.state ?? 'unavailable'}`,
+    `Last incremental sync: ${snapshot.diagnostics.lastIncrementalSyncAtUtc ?? 'never'} (${snapshot.diagnostics.lastIncrementalSyncAgeLabel} ago)`,
+    `Last full sync: ${snapshot.diagnostics.lastFullSyncAtUtc ?? 'never'} (${snapshot.diagnostics.lastFullSyncAgeLabel} ago)`,
+    `Conflicts: ${snapshot.conflicts.length}`,
+    eventLines.length > 0 ? 'Recent events:' : 'Recent events: none',
+    ...eventLines,
+  ].join('\n');
+}
+
+function renderObsidianConflicts(conflicts: ObsidianConflictSummary[]) {
+  if (conflicts.length === 0) {
+    return 'No tracked Obsidian conflicts or repair-needed tasks.';
+  }
+
+  return [
+    `Tracked Obsidian conflicts: ${conflicts.length}`,
+    ...conflicts.slice(0, 10).map((conflict) =>
+      `- ${conflict.taskId} ${conflict.kind} (${conflict.syncStatus})${conflict.recommendedAction ? ` -> ${conflict.recommendedAction}` : ''}`),
+  ].join('\n');
 }

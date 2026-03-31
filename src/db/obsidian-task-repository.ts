@@ -44,6 +44,10 @@ export interface ObsidianLocalCandidate {
   dueDatetime?: string;
 }
 
+export interface ObsidianUnhealthyTaskRecord extends ObsidianExportTask {
+  dbUpdatedAtUtc?: string;
+}
+
 export class ObsidianTaskRepository {
   constructor(private readonly db: Database) {}
 
@@ -340,6 +344,60 @@ export class ObsidianTaskRepository {
     };
   }
 
+  async listUnhealthy(limit = 100): Promise<ObsidianUnhealthyTaskRecord[]> {
+    const tasks = await this.db.query.obsidianTask.findMany({
+      where: inArray(obsidianTask.syncStatus, ['conflict', 'error', 'pending_push', 'pending_delete']),
+      limit,
+    });
+
+    if (tasks.length === 0) {
+      return [];
+    }
+
+    const taskIds = tasks.map((task) => task.todoistTaskId);
+    const labels = await this.db.query.obsidianTaskLabel.findMany({
+      where: inArray(obsidianTaskLabel.todoistTaskId, taskIds),
+      limit: 10000,
+    });
+
+    const labelsByTaskId = new Map<string, string[]>();
+
+    for (const label of labels) {
+      const current = labelsByTaskId.get(label.todoistTaskId) ?? [];
+      current.push(label.labelName);
+      labelsByTaskId.set(label.todoistTaskId, current);
+    }
+
+    return tasks.map((task) => ({
+      todoistTaskId: task.todoistTaskId,
+      content: task.content,
+      completed: task.completed,
+      priorityApi: task.priorityApi,
+      project: task.project ?? undefined,
+      effort: task.effort as ObsidianEffort | undefined,
+      labels: (labelsByTaskId.get(task.todoistTaskId) ?? []).sort((left, right) => left.localeCompare(right)),
+      dueDate: task.dueDate ?? undefined,
+      dueDatetimeUtc: task.dueDatetimeUtc ?? undefined,
+      recurring: task.recurring,
+      parentId: task.parentId ?? undefined,
+      orderIndex: task.orderIndex ?? undefined,
+      todoistProjectId: task.todoistProjectId ?? undefined,
+      todoistProjectName: task.todoistProjectName ?? undefined,
+      sectionId: task.sectionId ?? undefined,
+      sectionName: task.sectionName ?? undefined,
+      todoistUrl: task.todoistUrl,
+      createdAtUtc: task.createdAtUtc ?? undefined,
+      updatedAtUtc: task.sourceUpdatedAtUtc ?? undefined,
+      lastSyncedAtUtc: task.lastSyncedAtUtc,
+      syncStatus: task.syncStatus,
+      sourceOfLastChange: task.sourceOfLastChange,
+      contentHash: task.contentHash ?? undefined,
+      noteBody: task.noteBody ?? undefined,
+      taskStatus: task.taskStatus,
+      dbUpdatedAtUtc: task.dbUpdatedAtUtc,
+    }));
+  }
+
   async markPendingPush(todoistTaskId: string, candidate: ObsidianLocalCandidate, noteBody: string) {
     const now = new Date().toISOString();
 
@@ -473,5 +531,19 @@ export class ObsidianTaskRepository {
         })),
       );
     }
+  }
+
+  async markSynced(todoistTaskId: string, sourceOfLastChange: 'obsidian' | 'todoist' | 'system' = 'system') {
+    const now = new Date().toISOString();
+
+    await this.db
+      .update(obsidianTask)
+      .set({
+        syncStatus: 'synced',
+        sourceOfLastChange,
+        lastSyncedAtUtc: now,
+        dbUpdatedAtUtc: now,
+      })
+      .where(eq(obsidianTask.todoistTaskId, todoistTaskId));
   }
 }

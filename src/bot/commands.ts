@@ -143,6 +143,97 @@ export const slashCommands = [
             .setRequired(true),
         ),
     ),
+  new SlashCommandBuilder()
+    .setName('admin')
+    .setDescription('Inspect runtime health and run operator recovery actions.')
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('health')
+        .setDescription('Show runtime health, degraded subsystems, and provider state.'),
+    )
+    .addSubcommandGroup((group) =>
+      group
+        .setName('cache')
+        .setDescription('Inspect and rebuild local caches.')
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('inspect')
+            .setDescription('Show task and event cache freshness.'),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('rebuild')
+            .setDescription('Rebuild task and/or event caches from providers.')
+            .addStringOption((option) =>
+              option
+                .setName('target')
+                .setDescription('Which cache to rebuild.')
+                .setRequired(true)
+                .addChoices(
+                  { name: 'All', value: 'all' },
+                  { name: 'Tasks', value: 'tasks' },
+                  { name: 'Events', value: 'events' },
+                ),
+            ),
+        ),
+    )
+    .addSubcommandGroup((group) =>
+      group
+        .setName('reminders')
+        .setDescription('Inspect and repair reminder delivery state.')
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('inspect')
+            .setDescription('Show reminder backlog and recent failed jobs.'),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('retry-failed')
+            .setDescription('Reset failed reminder jobs back to pending.'),
+        ),
+    )
+    .addSubcommandGroup((group) =>
+      group
+        .setName('obsidian')
+        .setDescription('Inspect and repair Obsidian sync state.')
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('status')
+            .setDescription('Show Obsidian sync status and recent events.'),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('sync-once')
+            .setDescription('Run one managed Obsidian sync pass now.'),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('conflicts')
+            .setDescription('List tracked Obsidian conflicts and repair hints.'),
+        )
+        .addSubcommand((subcommand) =>
+          subcommand
+            .setName('resolve')
+            .setDescription('Run a repair action for one tracked Obsidian task.')
+            .addStringOption((option) =>
+              option
+                .setName('task_id')
+                .setDescription('Tracked Todoist task id.')
+                .setRequired(true),
+            )
+            .addStringOption((option) =>
+              option
+                .setName('action')
+                .setDescription('Repair action to run.')
+                .setRequired(true)
+                .addChoices(
+                  { name: 'Retry Push', value: 'retry-push' },
+                  { name: 'Retry Delete', value: 'retry-delete' },
+                  { name: 'Re-export', value: 're-export' },
+                ),
+            ),
+        ),
+    ),
 ];
 
 export const slashCommandPayload = slashCommands.map((command) => command.toJSON());

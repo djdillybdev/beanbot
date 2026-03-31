@@ -17,6 +17,11 @@ export interface ObsidianSyncContext {
   syncService: ObsidianSyncService;
   syncStateRepository: ObsidianSyncStateRepository;
   syncEventRepository: ObsidianSyncEventRepository;
+  taskRepository: ObsidianTaskRepository;
+  noteIndexRepository: ObsidianNoteIndexRepository;
+  pendingDeleteService: ObsidianPendingDeleteService;
+  pendingPushService: ObsidianPendingPushService;
+  vaultAdapter: ObsidianVaultAdapter;
 }
 
 export function createObsidianSyncContext(
@@ -82,5 +87,10 @@ export function createObsidianSyncContext(
     ),
     syncStateRepository,
     syncEventRepository,
+    taskRepository,
+    noteIndexRepository,
+    pendingDeleteService,
+    pendingPushService,
+    vaultAdapter,
   };
 }

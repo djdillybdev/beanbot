@@ -11,8 +11,12 @@
     "register:commands": "bun run src/scripts/register-commands.ts",
     "admin:health": "bun run src/scripts/admin-health.ts",
     "admin:obsidian:status": "bun run src/scripts/admin-obsidian-status.ts",
+    "admin:obsidian:conflicts": "bun run src/scripts/admin-obsidian-conflicts.ts",
+    "admin:obsidian:resolve": "bun run src/scripts/admin-obsidian-resolve.ts",
     "admin:obsidian:sync-once": "bun run src/scripts/admin-obsidian-sync-once.ts",
     "admin:cache:inspect": "bun run src/scripts/admin-cache-inspect.ts",
+    "admin:cache:rebuild": "bun run src/scripts/admin-cache-rebuild.ts",
+    "admin:reminders:retry-failed": "bun run src/scripts/admin-reminders-retry-failed.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/scripts/migrate.ts",
     "typecheck": "tsc --noEmit"

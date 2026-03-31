@@ -62,6 +62,38 @@ export class ObsidianPendingDeleteService {
     return { deletedTaskCount, deleteErrorCount };
   }
 
+  async retryTask(todoistTaskId: string) {
+    const task = await this.taskRepository.getByTaskId(todoistTaskId);
+
+    if (!task) {
+      throw new Error(`No tracked Obsidian task found for ${todoistTaskId}.`);
+    }
+
+    try {
+      await this.todoistClient.deleteTask(task.todoistTaskId);
+      await this.finalizeDelete(task.todoistTaskId, task.content, 'delete.completed', 'success');
+      return {
+        taskId: todoistTaskId,
+        result: 'success' as const,
+      };
+    } catch (error) {
+      if (isTodoistNotFoundError(error)) {
+        await this.finalizeDelete(
+          task.todoistTaskId,
+          task.content,
+          'local_delete_already_reconciled',
+          'reconciled',
+        );
+        return {
+          taskId: todoistTaskId,
+          result: 'reconciled' as const,
+        };
+      }
+
+      throw error;
+    }
+  }
+
   private async finalizeDelete(
     todoistTaskId: string,
     title: string,

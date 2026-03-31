@@ -45,7 +45,11 @@ import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 import { HabitService } from './app/habits/habit-service';
 import { startObsidianSyncRuntime } from './app/obsidian/obsidian-sync-runner';
+import { OperatorService } from './app/admin/operator-service';
 import { ObsidianSyncStateRepository } from './db/obsidian-sync-state-repository';
+import { ObsidianSyncEventRepository } from './db/obsidian-sync-event-repository';
+import { ObsidianTaskRepository } from './db/obsidian-task-repository';
+import { ObsidianNoteIndexRepository } from './db/obsidian-note-index-repository';
 import { buildOverallRuntimeSummary } from './runtime/diagnostics';
 import { SubsystemHealthRegistry } from './runtime/subsystem-health';
 
@@ -87,6 +91,9 @@ async function main() {
   const reminderJobRepository = new ReminderJobRepository(db);
   const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
   const obsidianSyncStateRepository = new ObsidianSyncStateRepository(db);
+  const obsidianSyncEventRepository = new ObsidianSyncEventRepository(db);
+  const obsidianTaskRepository = new ObsidianTaskRepository(db);
+  const obsidianNoteIndexRepository = new ObsidianNoteIndexRepository(db);
   const eventDraftStore = new EventDraftStore();
   const todayStatusRefreshNotifier = new TodayStatusRefreshNotifier(
     logger.child({ subsystem: 'today-status-refresh-notifier' }),
@@ -148,6 +155,28 @@ async function main() {
     eventService,
     logger.child({ subsystem: 'today-review' }),
   );
+  const operatorService = new OperatorService({
+    config,
+    db,
+    migrationResult,
+    healthRegistry,
+    actionLogRepository,
+    todoistTaskMapRepository,
+    calendarEventMapRepository,
+    habitRepository,
+    reminderJobRepository,
+    obsidianTaskRepository,
+    obsidianNoteIndexRepository,
+    obsidianSyncEventRepository,
+    obsidianSyncStateRepository,
+    todoistClient,
+    googleCalendarClient,
+    taskService,
+    eventService,
+    reminderService,
+    obsidianSyncRuntime,
+    logger: logger.child({ subsystem: 'operator' }),
+  });
 
   healthRegistry.markStarting('command-registration', 'Registering guild commands.');
   try {
@@ -198,6 +227,7 @@ async function main() {
     todayReviewService,
     taskService,
     eventService,
+    operatorService,
     eventDraftStore,
     logger: logger.child({ subsystem: 'bot-handlers' }),
   });

@@ -73,6 +73,16 @@ export class ReminderJobRepository {
     return rows.map(mapRowToReminderJobRecord);
   }
 
+  async listByStatus(status: ReminderStatus, limit = 25): Promise<ReminderJobRecord[]> {
+    const rows = await this.db.query.reminderJobs.findMany({
+      where: eq(reminderJobs.status, status),
+      orderBy: [reminderJobs.updatedAtUtc],
+      limit,
+    });
+
+    return rows.map(mapRowToReminderJobRecord);
+  }
+
   async cancelPendingJobsForSource(sourceType: ReminderJobRecord['sourceType'], sourceId: string) {
     await this.db
       .update(reminderJobs)
