@@ -3,6 +3,7 @@ import type {
   DailyTaskSummary,
   HabitReviewResult,
   HabitStreakSummary,
+  UnparsedHabitSummary,
   ProviderStatus,
 } from '../../domain/daily-review';
 import { formatLocalTime } from '../../utils/time';
@@ -78,6 +79,7 @@ export function buildHabitReviewResult(
   dueTodayHabits: DailyTaskSummary[],
   completedTodayHabits: CompletedTaskSummary[],
   streaks: HabitStreakSummary[],
+  unparsedHabits: UnparsedHabitSummary[],
   todoistStatus: ProviderStatus,
 ): HabitReviewResult {
   return {
@@ -85,12 +87,14 @@ export function buildHabitReviewResult(
     dueTodayHabits,
     completedTodayHabits,
     streaks,
+    unparsedHabits,
     todoistStatus,
     stats: {
       trackedHabitCount: streaks.length,
       completedTodayCount: completedTodayHabits.length,
       remainingTodayCount: overdueHabits.length + dueTodayHabits.length,
       longestCurrentStreak: streaks.reduce((max, streak) => Math.max(max, streak.currentStreak), 0),
+      unparsedHabitCount: unparsedHabits.length,
     },
   };
 }

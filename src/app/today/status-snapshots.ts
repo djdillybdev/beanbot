@@ -97,6 +97,12 @@ export function buildHabitStatusSnapshot(periodKey: string, review: HabitReviewR
       currentStreak: streak.currentStreak,
       completedToday: streak.completedToday,
     })),
+    unparsedHabits: review.unparsedHabits.map((habit) => ({
+      habitId: habit.habitId,
+      title: habit.title,
+      rawRecurrenceText: habit.rawRecurrenceText ?? null,
+      activeStatus: habit.activeStatus,
+    })),
     todoistStatusMessage: review.todoistStatus.message ?? null,
   });
 }

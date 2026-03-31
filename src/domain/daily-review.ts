@@ -87,17 +87,26 @@ export interface HabitStreakSummary {
   completedToday: boolean;
 }
 
+export interface UnparsedHabitSummary {
+  habitId: number;
+  title: string;
+  rawRecurrenceText?: string;
+  activeStatus: 'due_today' | 'overdue' | 'future' | 'inactive';
+}
+
 export interface HabitReviewResult {
   overdueHabits: DailyTaskSummary[];
   dueTodayHabits: DailyTaskSummary[];
   completedTodayHabits: CompletedTaskSummary[];
   streaks: HabitStreakSummary[];
+  unparsedHabits: UnparsedHabitSummary[];
   todoistStatus: ProviderStatus;
   stats: {
     trackedHabitCount: number;
     completedTodayCount: number;
     remainingTodayCount: number;
     longestCurrentStreak: number;
+    unparsedHabitCount: number;
   };
 }
 

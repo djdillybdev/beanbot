@@ -90,10 +90,20 @@ describe('habit review stats', () => {
           completedToday: false,
         },
       ],
+      [
+        {
+          habitId: 3,
+          title: 'Stretch',
+          rawRecurrenceText: 'every first business day',
+          activeStatus: 'due_today',
+        },
+      ],
       { configured: true, connected: true },
     );
 
     expect(review.stats.trackedHabitCount).toBe(2);
     expect(review.stats.longestCurrentStreak).toBe(3);
+    expect(review.stats.unparsedHabitCount).toBe(1);
+    expect(review.unparsedHabits[0]?.title).toBe('Stretch');
   });
 });

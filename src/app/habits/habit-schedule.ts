@@ -46,6 +46,18 @@ export function normalizeHabitSchedule(rawText: string | undefined, recurring: b
     return { kind: 'weekly_days', rawText: trimmed, daysOfWeek: ['mon', 'tue', 'wed', 'thu', 'fri'] };
   }
 
+  if (normalized === 'every weekend' || normalized === 'weekends') {
+    return { kind: 'weekly_days', rawText: trimmed, daysOfWeek: ['sat', 'sun'] };
+  }
+
+  if (normalized === 'every other day') {
+    return {
+      kind: 'interval_days',
+      rawText: trimmed,
+      intervalDays: 2,
+    };
+  }
+
   const intervalMatch = normalized.match(/^every (\d+) days?$/);
 
   if (intervalMatch) {
@@ -128,6 +140,7 @@ function parseWeeklyDays(normalized: string): HabitWeekday[] {
 
   const remainder = normalized.slice('every '.length);
   const tokens = remainder
+    .replace(/\//g, ',')
     .replace(/\band\b/g, ',')
     .split(',')
     .map((token) => token.trim())

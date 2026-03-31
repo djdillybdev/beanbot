@@ -1,4 +1,4 @@
-import type { DailyTaskSummary, HabitStreakSummary } from '../../domain/daily-review';
+import type { DailyTaskSummary, HabitStreakSummary, UnparsedHabitSummary } from '../../domain/daily-review';
 import type {
   HabitActiveStatus,
   HabitCompletionSource,
@@ -207,6 +207,7 @@ export class HabitService {
     const habits = await this.habitRepository.listActive();
 
     return habits
+      .filter((habit) => habit.schedule.kind !== 'unparsed')
       .map((habit) => ({
         habitId: habit.id,
         title: habit.title,
@@ -219,6 +220,22 @@ export class HabitService {
           right.currentStreak - left.currentStreak ||
           left.title.localeCompare(right.title)
         );
+      });
+  }
+
+  async listActiveUnparsedHabits(): Promise<UnparsedHabitSummary[]> {
+    const habits = await this.habitRepository.listActive();
+
+    return habits
+      .filter((habit) => habit.schedule.kind === 'unparsed')
+      .map((habit) => ({
+        habitId: habit.id,
+        title: habit.title,
+        rawRecurrenceText: habit.schedule.rawText ?? habit.rawRecurrenceText,
+        activeStatus: habit.activeStatus,
+      }))
+      .sort((left, right) => {
+        return compareActiveStatus(left.activeStatus, right.activeStatus) || left.title.localeCompare(right.title);
       });
   }
 
@@ -291,4 +308,18 @@ export function classifyHabitTaskStatus(
 
 function getTaskDueDate(task: HabitTaskLike | DailyTaskSummary) {
   return (task as HabitTaskLike).dueDate ?? (task as DailyTaskSummary).dateKey;
+}
+
+function compareActiveStatus(
+  left: UnparsedHabitSummary['activeStatus'],
+  right: UnparsedHabitSummary['activeStatus'],
+) {
+  const rank: Record<UnparsedHabitSummary['activeStatus'], number> = {
+    overdue: 0,
+    due_today: 1,
+    future: 2,
+    inactive: 3,
+  };
+
+  return rank[left] - rank[right];
 }

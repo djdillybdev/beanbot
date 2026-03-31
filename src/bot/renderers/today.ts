@@ -308,6 +308,7 @@ function buildHabitEmbeds(
       buildMetricField('Done Today', String(review.stats.completedTodayCount)),
       buildMetricField('Left Today', String(review.stats.remainingTodayCount)),
       buildMetricField('Best Streak', String(review.stats.longestCurrentStreak)),
+      buildMetricField('Needs Review', String(review.stats.unparsedHabitCount)),
       buildTaskField('⏰ Overdue Habits', review.overdueHabits, 'No overdue habits.'),
       buildTaskField('🌱 Habits Left Today', review.dueTodayHabits, 'All habits are done for today.'),
       buildCompletedTaskField('✅ Done Today', review.completedTodayHabits, 'No completed habits yet.'),
@@ -325,6 +326,21 @@ function buildHabitEmbeds(
         ),
         inline: false,
       },
+      {
+        name: '🛠 Unparsed Schedules',
+        value: truncateField(
+          review.unparsedHabits.length > 0
+            ? review.unparsedHabits
+                .map((habit) => {
+                  const statusLabel = formatUnparsedStatus(habit.activeStatus);
+                  const rawText = habit.rawRecurrenceText ? ` · ${habit.rawRecurrenceText}` : '';
+                  return `${statusLabel} ${habit.title}${rawText}`;
+                })
+                .join('\n')
+            : 'All active habits use supported schedule parsing.',
+        ),
+        inline: false,
+      },
       buildProviderStatusField(review.todoistStatus),
     )
     .setColor(color);
@@ -336,6 +352,20 @@ function buildHabitEmbeds(
   }
 
   return [header];
+}
+
+function formatUnparsedStatus(status: HabitReviewResult['unparsedHabits'][number]['activeStatus']) {
+  switch (status) {
+    case 'overdue':
+      return '⏰';
+    case 'due_today':
+      return '📌';
+    case 'future':
+      return '🗓';
+    case 'inactive':
+    default:
+      return '⚪';
+  }
 }
 
 function buildUndatedBaseEmbeds(

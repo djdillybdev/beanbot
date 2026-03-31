@@ -209,6 +209,7 @@ export class TodayReviewService {
     const dueTodayHabits = splitTasksByHabitLabel(tasks.dueTodayTasks).habits;
     const completedHabits = await this.getCompletedHabitsForDate(now);
     const streaks = await this.habitService.listActiveStreaks(now);
+    const unparsedHabits = await this.habitService.listActiveUnparsedHabits();
 
     await this.refreshTaskCache([...tasks.overdueTasks, ...tasks.dueTodayTasks], todoistStatus.connected);
 
@@ -217,6 +218,7 @@ export class TodayReviewService {
       dueTodayHabits,
       completedHabits,
       streaks,
+      unparsedHabits,
       todoistStatus,
     );
   }

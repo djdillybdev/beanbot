@@ -34,6 +34,30 @@ describe('habit schedule normalization', () => {
     });
   });
 
+  test('parses every other day schedules', () => {
+    expect(normalizeHabitSchedule('every other day', true)).toEqual({
+      kind: 'interval_days',
+      rawText: 'every other day',
+      intervalDays: 2,
+    });
+  });
+
+  test('parses weekend schedules', () => {
+    expect(normalizeHabitSchedule('every weekend', true)).toEqual({
+      kind: 'weekly_days',
+      rawText: 'every weekend',
+      daysOfWeek: ['sat', 'sun'],
+    });
+  });
+
+  test('parses slash-separated weekday lists', () => {
+    expect(normalizeHabitSchedule('every mon/wed/fri', true)).toEqual({
+      kind: 'weekly_days',
+      rawText: 'every mon/wed/fri',
+      daysOfWeek: ['mon', 'wed', 'fri'],
+    });
+  });
+
   test('marks unsupported schedules as unparsed', () => {
     expect(normalizeHabitSchedule('every first business day', true)).toEqual({
       kind: 'unparsed',
