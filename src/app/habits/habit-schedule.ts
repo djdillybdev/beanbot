@@ -1,4 +1,4 @@
-import type { HabitMetrics, HabitSchedule, HabitWeekday } from '../../domain/habit';
+import type { HabitActiveStatus, HabitMetrics, HabitSchedule, HabitWeekday } from '../../domain/habit';
 
 const WEEKDAYS: HabitWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const WEEKDAY_SET = new Set<HabitWeekday>(WEEKDAYS);
@@ -69,6 +69,7 @@ export function computeHabitMetrics(
   today: string,
   schedule: HabitSchedule,
   completionDates: string[],
+  options?: { activeStatus?: HabitActiveStatus },
 ): HabitMetrics {
   const uniqueDates = Array.from(new Set(completionDates)).sort((left, right) => left.localeCompare(right));
   const lastCompletedLocalDate = uniqueDates.at(-1);
@@ -85,19 +86,19 @@ export function computeHabitMetrics(
   switch (schedule.kind) {
     case 'daily':
     case 'weekly_days':
-      return {
+      return applyActiveStatus({
         currentStreak: computeScheduledDayCurrentStreak(today, schedule, new Set(uniqueDates)),
         longestStreak: computeScheduledDayLongestStreak(today, schedule, new Set(uniqueDates)),
         lastCompletedLocalDate,
         completionCount: uniqueDates.length,
-      };
+      }, options?.activeStatus);
     case 'interval_days':
-      return {
+      return applyActiveStatus({
         currentStreak: computeIntervalCurrentStreak(today, schedule.intervalDays ?? 0, uniqueDates),
         longestStreak: computeIntervalLongestStreak(schedule.intervalDays ?? 0, uniqueDates),
         lastCompletedLocalDate,
         completionCount: uniqueDates.length,
-      };
+      }, options?.activeStatus);
     case 'unparsed':
     default:
       return {
@@ -107,6 +108,17 @@ export function computeHabitMetrics(
         completionCount: uniqueDates.length,
       };
   }
+}
+
+function applyActiveStatus(metrics: HabitMetrics, activeStatus?: HabitActiveStatus) {
+  if (activeStatus === 'overdue') {
+    return {
+      ...metrics,
+      currentStreak: 0,
+    };
+  }
+
+  return metrics;
 }
 
 function parseWeeklyDays(normalized: string): HabitWeekday[] {

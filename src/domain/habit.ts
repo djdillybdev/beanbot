@@ -4,6 +4,8 @@ export type HabitScheduleKind = 'daily' | 'weekly_days' | 'interval_days' | 'unp
 
 export type HabitWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
+export type HabitActiveStatus = 'due_today' | 'overdue' | 'future' | 'inactive';
+
 export interface HabitSchedule {
   kind: HabitScheduleKind;
   rawText?: string;
@@ -17,10 +19,14 @@ export interface HabitRecord {
   title: string;
   normalizedTitle: string;
   isActive: boolean;
+  activeStatus: HabitActiveStatus;
   projectId?: string;
   projectName?: string;
   todoistUrl?: string;
   rawRecurrenceText?: string;
+  currentDueDate?: string;
+  currentDueDatetimeUtc?: string;
+  currentDueString?: string;
   schedule: HabitSchedule;
   currentStreak: number;
   longestStreak: number;
@@ -36,10 +42,14 @@ export interface HabitRecordInput {
   title: string;
   normalizedTitle: string;
   isActive: boolean;
+  activeStatus: HabitActiveStatus;
   projectId?: string;
   projectName?: string;
   todoistUrl?: string;
   rawRecurrenceText?: string;
+  currentDueDate?: string;
+  currentDueDatetimeUtc?: string;
+  currentDueString?: string;
   schedule: HabitSchedule;
 }
 

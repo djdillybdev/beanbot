@@ -99,6 +99,13 @@
       "when": 1777672800000,
       "tag": "0013_habit_model",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777759200000,
+      "tag": "0014_habit_active_snapshot",
+      "breakpoints": true
     }
   ]
 }

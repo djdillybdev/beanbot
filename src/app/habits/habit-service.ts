@@ -1,11 +1,12 @@
-import type { CompletedTaskSummary, DailyTaskSummary, HabitStreakSummary } from '../../domain/daily-review';
+import type { DailyTaskSummary, HabitStreakSummary } from '../../domain/daily-review';
 import type {
+  HabitActiveStatus,
   HabitCompletionSource,
   HabitRecord,
 } from '../../domain/habit';
 import { HabitCompletionRepository } from '../../db/habit-completion-repository';
 import { HabitRepository } from '../../db/habit-repository';
-import type { TodoistTaskRecord } from '../../domain/task';
+import type { TodoistCompletedTaskRecord, TodoistTaskRecord } from '../../domain/task';
 import type { Logger } from '../../logging/logger';
 import { normalizeTaskTitle } from '../../utils/text';
 import { getLocalDateParts } from '../../utils/time';
@@ -14,7 +15,32 @@ import { hasHabitLabel } from './habit-review';
 
 type HabitTaskLike = Pick<
   TodoistTaskRecord,
-  'id' | 'title' | 'normalizedTitle' | 'recurring' | 'projectId' | 'projectName' | 'dueString' | 'url' | 'labels'
+  | 'id'
+  | 'title'
+  | 'normalizedTitle'
+  | 'recurring'
+  | 'projectId'
+  | 'projectName'
+  | 'dueDate'
+  | 'dueDateTimeUtc'
+  | 'dueString'
+  | 'url'
+  | 'labels'
+>;
+
+type CompletedHabitTaskLike = Pick<
+  TodoistCompletedTaskRecord,
+  | 'id'
+  | 'title'
+  | 'normalizedTitle'
+  | 'recurring'
+  | 'projectId'
+  | 'projectName'
+  | 'dueDate'
+  | 'dueDateTimeUtc'
+  | 'dueString'
+  | 'url'
+  | 'labels'
 >;
 
 export class HabitService {
@@ -31,6 +57,8 @@ export class HabitService {
       return null;
     }
 
+    const today = getLocalDateParts(new Date(), this.timezone).date;
+
     return this.habitRepository.upsert({
       todoistTaskId: task.id,
       title: task.title,
@@ -42,6 +70,13 @@ export class HabitService {
       projectName: task.projectName,
       todoistUrl: task.url,
       rawRecurrenceText: task.dueString,
+      currentDueDate: getTaskDueDate(task),
+      currentDueDatetimeUtc: 'dueDateTimeUtc' in task ? task.dueDateTimeUtc : undefined,
+      currentDueString: task.dueString,
+      activeStatus: classifyHabitTaskStatus({
+        dueDate: getTaskDueDate(task),
+        dueDateTimeUtc: 'dueDateTimeUtc' in task ? task.dueDateTimeUtc : undefined,
+      }, today),
       schedule: normalizeHabitSchedule(task.dueString, task.recurring),
     });
   }
@@ -52,8 +87,44 @@ export class HabitService {
     }
   }
 
+  async syncActiveTasks(tasks: HabitTaskLike[], now = new Date()) {
+    const today = getLocalDateParts(now, this.timezone).date;
+    const activeTaskIds = new Set<string>();
+
+    for (const task of tasks) {
+      if (!isTrackedHabitTask(task)) {
+        continue;
+      }
+
+      activeTaskIds.add(task.id);
+      await this.habitRepository.upsert({
+        todoistTaskId: task.id,
+        title: task.title,
+        normalizedTitle: task.normalizedTitle,
+        isActive: true,
+        activeStatus: classifyHabitTaskStatus(task, today),
+        projectId: task.projectId,
+        projectName: task.projectName,
+        todoistUrl: task.url,
+        rawRecurrenceText: task.dueString,
+        currentDueDate: task.dueDate,
+        currentDueDatetimeUtc: task.dueDateTimeUtc,
+        currentDueString: task.dueString,
+        schedule: normalizeHabitSchedule(task.dueString, task.recurring),
+      });
+    }
+
+    const existing = await this.habitRepository.listActive();
+
+    for (const habit of existing) {
+      if (habit.todoistTaskId && !activeTaskIds.has(habit.todoistTaskId)) {
+        await this.habitRepository.markInactiveByTodoistTaskId(habit.todoistTaskId);
+      }
+    }
+  }
+
   async recordCompletion(
-    task: HabitTaskLike,
+    task: HabitTaskLike | CompletedHabitTaskLike,
     completedAtUtc: string,
     source: HabitCompletionSource,
   ) {
@@ -84,23 +155,15 @@ export class HabitService {
   }
 
   async recordExternalCompletions(
-    completedTasks: CompletedTaskSummary[],
-    cachedTasksById: Map<string, TodoistTaskRecord>,
+    completedTasks: TodoistCompletedTaskRecord[],
   ) {
     for (const completedTask of completedTasks) {
-      const cachedTask = cachedTasksById.get(completedTask.id);
-
-      if (!cachedTask) {
+      if (!isTrackedHabitTask(completedTask)) {
         continue;
       }
 
       await this.recordCompletion(
-        {
-          ...cachedTask,
-          projectId: completedTask.projectId ?? cachedTask.projectId,
-          projectName: completedTask.projectName ?? cachedTask.projectName,
-          url: completedTask.url,
-        },
+        completedTask,
         completedTask.completedAtUtc,
         'todoist_external',
       );
@@ -194,6 +257,7 @@ export class HabitService {
       getLocalDateParts(now, this.timezone).date,
       habit.schedule,
       completions.map((completion) => completion.completedLocalDate),
+      { activeStatus: habit.activeStatus },
     );
 
     await this.habitRepository.updateMetrics(habitId, metrics);
@@ -202,4 +266,29 @@ export class HabitService {
 
 function isTrackedHabitTask(task: { labels?: string[]; recurring?: boolean }) {
   return hasHabitLabel(task.labels) && task.recurring === true;
+}
+
+export function classifyHabitTaskStatus(
+  task: Pick<HabitTaskLike, 'dueDate' | 'dueDateTimeUtc'>,
+  today: string,
+): HabitActiveStatus {
+  const dueDate = task.dueDate;
+
+  if (!dueDate) {
+    return 'future';
+  }
+
+  if (dueDate < today) {
+    return 'overdue';
+  }
+
+  if (dueDate === today) {
+    return 'due_today';
+  }
+
+  return 'future';
+}
+
+function getTaskDueDate(task: HabitTaskLike | DailyTaskSummary) {
+  return (task as HabitTaskLike).dueDate ?? (task as DailyTaskSummary).dateKey;
 }

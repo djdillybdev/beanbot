@@ -76,7 +76,15 @@ interface TodoistCompletedTaskResponse {
   content: string;
   priority: number;
   project_id?: string | null;
+  labels?: string[] | null;
   completed_at: string;
+  due?: {
+    date?: string;
+    datetime?: string;
+    string?: string;
+    is_recurring?: boolean;
+  } | null;
+  url?: string;
 }
 
 interface TodoistSyncResponse {
@@ -113,6 +121,11 @@ export class TodoistClient {
     return this.getCompletedTasksInRange(dayBounds.startUtc, dayBounds.endUtc);
   }
 
+  async getCompletedHabitTasksForToday(now = new Date()): Promise<TodoistCompletedTaskRecord[]> {
+    const dayBounds = getZonedDayBounds(now, this.config.timezone);
+    return this.getCompletedHabitTasksInRange(dayBounds.startUtc, dayBounds.endUtc);
+  }
+
   async getCompletedTasksInRange(since: string, until: string): Promise<CompletedTaskSummary[]> {
     const token = await this.requireToken();
     const tasks = await this.fetchCompletedTasksByCompletionDate(token, since, until);
@@ -122,6 +135,21 @@ export class TodoistClient {
     return tasks
       .map((task) => mapCompletedTaskSummary(task, this.config.timezone, task.projectId ? projectNames.get(task.projectId) : undefined))
       .sort((left, right) => left.completedSortKey.localeCompare(right.completedSortKey));
+  }
+
+  async getCompletedHabitTasksInRange(since: string, until: string): Promise<TodoistCompletedTaskRecord[]> {
+    const token = await this.requireToken();
+    const tasks = await this.fetchCompletedTasksByCompletionDate(token, since, until);
+    const projects = await this.fetchProjects(token);
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+
+    return tasks
+      .filter((task) => task.recurring === true && task.labels?.includes('habit'))
+      .map((task) => ({
+        ...task,
+        projectName: task.projectId ? projectNames.get(task.projectId) : undefined,
+      }))
+      .sort((left, right) => left.completedAtUtc.localeCompare(right.completedAtUtc));
   }
 
   async getTasksForUpcomingDays(
@@ -631,10 +659,16 @@ export class TodoistClient {
         ...payload.items.map((task) => ({
           id: task.id,
           title: task.content,
+          normalizedTitle: normalizeTaskTitle(task.content),
           priority: task.priority,
+          recurring: task.due?.is_recurring ?? false,
           projectId: task.project_id ?? undefined,
           completedAtUtc: new Date(task.completed_at).toISOString(),
-          url: `https://app.todoist.com/app/task/${task.id}`,
+          dueDate: task.due?.datetime ? getLocalDateParts(new Date(task.due.datetime), this.config.timezone).date : task.due?.date,
+          dueDateTimeUtc: task.due?.datetime ? new Date(task.due.datetime).toISOString() : undefined,
+          dueString: task.due?.string ?? undefined,
+          labels: task.labels ?? undefined,
+          url: task.url ?? `https://app.todoist.com/app/task/${task.id}`,
         })),
       );
       cursor = payload.next_cursor ?? null;
@@ -853,7 +887,7 @@ function mapCompletedTaskSummary(
     completedAtUtc: task.completedAtUtc,
     completedLabel: `Done at ${formatLocalTime(new Date(task.completedAtUtc), timezone)}`,
     completedSortKey: task.completedAtUtc,
-    labels: undefined,
+    labels: task.labels,
     url: task.url,
   };
 }

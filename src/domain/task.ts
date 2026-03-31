@@ -53,10 +53,16 @@ export interface InboxTaskCaptureResult {
 export interface TodoistCompletedTaskRecord {
   id: string;
   title: string;
+  normalizedTitle: string;
   priority: number;
+  recurring?: boolean;
   projectId?: string;
   projectName?: string;
   completedAtUtc: string;
+  dueDate?: string;
+  dueDateTimeUtc?: string;
+  dueString?: string;
+  labels?: string[];
   url: string;
 }
 

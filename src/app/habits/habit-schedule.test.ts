@@ -96,4 +96,16 @@ describe('habit metrics', () => {
     expect(metrics.currentStreak).toBe(0);
     expect(metrics.longestStreak).toBe(0);
   });
+
+  test('resets current streak when the active recurring task is overdue', () => {
+    const metrics = computeHabitMetrics(
+      '2026-03-30',
+      { kind: 'daily', rawText: 'every day' },
+      ['2026-03-28', '2026-03-29'],
+      { activeStatus: 'overdue' },
+    );
+
+    expect(metrics.currentStreak).toBe(0);
+    expect(metrics.longestStreak).toBe(2);
+  });
 });
