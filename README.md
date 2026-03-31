@@ -55,7 +55,7 @@ Copy `.env.example` to `.env` and fill in:
 - `TODOIST_CLIENT_ID`
 - `TODOIST_CLIENT_SECRET`
 - `TODOIST_REDIRECT_URI`
-- `OBSIDIAN_VAULT_PATH` (optional, for Obsidian sync sidecar)
+- `OBSIDIAN_VAULT_PATH` (optional, enables integrated Obsidian sync)
 - `OBSIDIAN_TASKS_PATH` (default `Tasks/todoist`)
 - `OBSIDIAN_SYNC_POLL_INTERVAL_SECONDS` (default `300`)
 - `GOOGLE_CLIENT_ID`
@@ -70,12 +70,9 @@ bun install
 bun run db:migrate
 bun run register:commands
 bun run dev
-bun run sync:obsidian
 ```
 
-`bun run dev` also applies migrations and registers guild commands at startup before logging the bot in.
-
-`bun run sync:obsidian` runs the Todoist -> SQLite -> Obsidian export sidecar. It requires `OBSIDIAN_VAULT_PATH` and an already connected Todoist account.
+`bun run dev` also applies migrations, registers guild commands at startup, and starts the integrated Obsidian sync runtime when `OBSIDIAN_VAULT_PATH` is configured.
 
 ## Obsidian sync
 
@@ -86,6 +83,7 @@ The repo now includes a first-pass Obsidian exporter:
 - stores native Todoist project metadata separately from the Obsidian `project` field
 - derives `project` from a Todoist label in `proj:<slug>` format
 - preserves note body text across export passes
+- starts inside the main Beanbot process instead of as a separate sidecar
 
 This currently supports Milestone 3 writeback for existing synced notes:
 

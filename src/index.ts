@@ -44,6 +44,7 @@ import {
 import { LiveStatusService } from './app/today/today-status-service';
 import { getLocalDateParts, getMonthBounds, getWeekBounds } from './utils/time';
 import { HabitService } from './app/habits/habit-service';
+import { startObsidianSyncRuntime } from './app/obsidian/obsidian-sync-runner';
 
 async function main() {
   const config = createConfig();
@@ -80,6 +81,12 @@ async function main() {
     config,
     tokenRepository,
     googleCalendarOAuthService,
+  );
+  const obsidianSyncRuntime = await startObsidianSyncRuntime(
+    config,
+    db,
+    todoistClient,
+    logger,
   );
   const reminderService = new ReminderService(
     config,
@@ -301,6 +308,7 @@ async function main() {
     undatedStatusRefreshScheduler.stop();
     upcomingStatusRefreshScheduler.stop();
     reminderScheduler.stop();
+    obsidianSyncRuntime.stop();
     httpServer.close();
     await discord.client.destroy();
     process.exit(0);

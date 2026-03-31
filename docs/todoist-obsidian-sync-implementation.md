@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Obsidian sync lives inside `beanbot` as a separate sidecar process. It reuses the existing Bun, TypeScript, SQLite, Drizzle, Todoist OAuth, and logging foundation, while keeping Discord bot behavior independent.
+The Obsidian sync lives inside the main `beanbot` process as an integrated background subsystem. It reuses the existing Bun, TypeScript, SQLite, Drizzle, Todoist OAuth, and logging foundation so one process owns startup, migrations, and database access.
 
 The current implementation covers Milestone 3:
 
@@ -23,11 +23,11 @@ The current implementation covers Milestone 3:
 
 - `OBSIDIAN_VAULT_PATH`: absolute or relative path to the target vault
 - `OBSIDIAN_TASKS_PATH`: folder inside the vault where task notes should be written
-- `OBSIDIAN_SYNC_POLL_INTERVAL_SECONDS`: poll interval for the sync sidecar
+- `OBSIDIAN_SYNC_POLL_INTERVAL_SECONDS`: poll interval for the integrated sync runner
 
 ### Runtime
 
-- `bun run sync:obsidian`: starts the Obsidian sync sidecar
+- `bun run dev` and `bun run start` start Obsidian sync automatically when `OBSIDIAN_VAULT_PATH` is configured
 
 ### Note Contract
 
@@ -89,7 +89,7 @@ The note body is preserved during export and remains local-only.
 
 - run `bun run typecheck`
 - run `bun test`
-- run `bun run sync:obsidian` with a connected Todoist account and configured vault path
+- run `bun run dev` with a connected Todoist account and configured vault path
 - verify task notes appear in the configured `OBSIDIAN_TASKS_PATH`
 - verify note filenames use Todoist IDs rather than task titles
 - verify rerunning the sync does not rewrite unchanged notes
