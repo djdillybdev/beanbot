@@ -10,7 +10,6 @@ import {
 import { ReminderJobRepository } from '../../db/reminder-job-repository';
 import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
 import { CalendarEventMapRepository } from '../../db/calendar-event-map-repository';
-import { HabitRepository } from '../../db/habit-repository';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { TodoistClient } from '../../integrations/todoist/client';
 import { GoogleCalendarClient } from '../../integrations/google-calendar/client';
@@ -67,7 +66,6 @@ interface OperatorServiceDependencies {
   actionLogRepository: ActionLogRepository;
   todoistTaskMapRepository: TodoistTaskMapRepository;
   calendarEventMapRepository: CalendarEventMapRepository;
-  habitRepository: HabitRepository;
   reminderJobRepository: ReminderJobRepository;
   obsidianTaskRepository: ObsidianTaskRepository;
   obsidianNoteIndexRepository: ObsidianNoteIndexRepository;
@@ -92,7 +90,6 @@ export class OperatorService {
       healthRegistry,
       todoistTaskMapRepository,
       calendarEventMapRepository,
-      habitRepository,
       reminderJobRepository,
       obsidianSyncStateRepository,
       todoistClient,
@@ -102,7 +99,7 @@ export class OperatorService {
       await Promise.all([
         todoistTaskMapRepository.getCacheSummary(),
         calendarEventMapRepository.getCacheSummary(),
-        habitRepository.getSummary(),
+        todoistTaskMapRepository.getHabitSummary(),
         reminderJobRepository.getSummary(),
         obsidianSyncStateRepository.getState(),
         todoistClient.isConnected(),

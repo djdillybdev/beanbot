@@ -158,6 +158,37 @@ function ensureHabitSchema(sqlite: Database, repairsApplied: string[]) {
     repairsApplied.push('Added todoist_task_map.last_seen_recurring compatibility column.');
   }
 
+  ensureTodoistTaskMapColumn(
+    sqlite,
+    'last_seen_section_id',
+    `ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_section_id" text;`,
+    repairsApplied,
+  );
+  ensureTodoistTaskMapColumn(
+    sqlite,
+    'last_seen_parent_id',
+    `ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_parent_id" text;`,
+    repairsApplied,
+  );
+  ensureTodoistTaskMapColumn(
+    sqlite,
+    'last_seen_order_index',
+    `ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_order_index" integer;`,
+    repairsApplied,
+  );
+  ensureTodoistTaskMapColumn(
+    sqlite,
+    'last_seen_created_at_utc',
+    `ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_created_at_utc" text;`,
+    repairsApplied,
+  );
+  ensureTodoistTaskMapColumn(
+    sqlite,
+    'last_seen_updated_at_utc',
+    `ALTER TABLE "todoist_task_map" ADD COLUMN "last_seen_updated_at_utc" text;`,
+    repairsApplied,
+  );
+
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS "habit" (
       "id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -211,6 +242,36 @@ function ensureHabitSchema(sqlite: Database, repairsApplied: string[]) {
 
     CREATE INDEX IF NOT EXISTS "habit_completion_local_date_idx"
     ON "habit_completion" ("completed_local_date", "completed_at_utc");
+
+    CREATE TABLE IF NOT EXISTS "task_completion" (
+      "event_key" text PRIMARY KEY NOT NULL,
+      "todoist_task_id" text NOT NULL,
+      "normalized_title" text NOT NULL,
+      "title" text NOT NULL,
+      "completed_at_utc" text NOT NULL,
+      "completed_local_date" text NOT NULL,
+      "source" text NOT NULL,
+      "priority" integer DEFAULT 1 NOT NULL,
+      "project_id" text,
+      "project_name" text,
+      "recurring" integer DEFAULT false NOT NULL,
+      "due_date" text,
+      "due_datetime_utc" text,
+      "due_string" text,
+      "labels_csv" text,
+      "url" text NOT NULL,
+      "provisional" integer DEFAULT false NOT NULL,
+      "created_at_utc" text DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS "task_completion_task_idx"
+    ON "task_completion" ("todoist_task_id", "completed_at_utc");
+
+    CREATE INDEX IF NOT EXISTS "task_completion_local_date_idx"
+    ON "task_completion" ("completed_local_date", "completed_at_utc");
+
+    CREATE INDEX IF NOT EXISTS "task_completion_task_local_date_idx"
+    ON "task_completion" ("todoist_task_id", "completed_local_date", "provisional");
   `);
 
   ensureHabitColumn(
@@ -331,6 +392,38 @@ function ensureHabitSchema(sqlite: Database, repairsApplied: string[]) {
     WHERE "active_status" IS NULL
       OR "active_status" = ''
       OR "current_due_string" IS NULL;
+
+    INSERT INTO "task_completion" (
+      "event_key",
+      "todoist_task_id",
+      "normalized_title",
+      "title",
+      "completed_at_utc",
+      "completed_local_date",
+      "source",
+      "priority",
+      "project_id",
+      "project_name",
+      "recurring",
+      "url",
+      "provisional"
+    )
+    SELECT
+      "dedupe_key",
+      "todoist_task_id",
+      "normalized_title",
+      "title",
+      "completed_at_utc",
+      "completed_local_date",
+      "source",
+      "priority",
+      "project_id",
+      "project_name",
+      true,
+      "url",
+      false
+    FROM "habit_completion_history"
+    ON CONFLICT("event_key") DO NOTHING;
   `);
 
   if (repairsApplied.length > initialRepairCount) {
@@ -347,6 +440,18 @@ function ensureHabitColumn(
   if (!hasColumn(sqlite, 'habit', columnName)) {
     sqlite.exec(alterSql);
     repairsApplied.push(`Added habit.${columnName} compatibility column.`);
+  }
+}
+
+function ensureTodoistTaskMapColumn(
+  sqlite: Database,
+  columnName: string,
+  alterSql: string,
+  repairsApplied: string[],
+) {
+  if (!hasColumn(sqlite, 'todoist_task_map', columnName)) {
+    sqlite.exec(alterSql);
+    repairsApplied.push(`Added todoist_task_map.${columnName} compatibility column.`);
   }
 }
 
@@ -379,6 +484,22 @@ function collectSchemaIssues(sqlite: Database) {
 
   if (!hasColumn(sqlite, 'todoist_task_map', 'last_seen_recurring')) {
     issues.push('Missing column todoist_task_map.last_seen_recurring');
+  }
+
+  for (const columnName of [
+    'last_seen_section_id',
+    'last_seen_parent_id',
+    'last_seen_order_index',
+    'last_seen_created_at_utc',
+    'last_seen_updated_at_utc',
+  ]) {
+    if (!hasColumn(sqlite, 'todoist_task_map', columnName)) {
+      issues.push(`Missing column todoist_task_map.${columnName}`);
+    }
+  }
+
+  if (!hasTable(sqlite, 'task_completion')) {
+    issues.push('Missing table task_completion');
   }
 
   return issues;

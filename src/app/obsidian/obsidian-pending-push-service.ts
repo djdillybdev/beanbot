@@ -59,15 +59,15 @@ export class ObsidianPendingPushService {
 
   private async pushTask(task: ObsidianExportTask) {
     const labels = mergeReservedLabels(task.project, task.effort, task.labels);
-    await this.todoistClient.getTask(task.todoistTaskId);
+    const currentTask = await this.todoistClient.getTask(task.todoistTaskId);
 
     const updatedTask = await this.todoistClient.updateTask(task.todoistTaskId, {
       content: task.content,
       labels,
       priority: normalizePriority(task.priorityApi),
-      due_date: task.dueDatetimeUtc ? null : (task.dueDate ?? null),
-      due_datetime: task.dueDatetimeUtc ?? null,
-      due_string: !task.dueDate && !task.dueDatetimeUtc ? null : undefined,
+      due_date: currentTask.recurring ? undefined : task.dueDatetimeUtc ? null : (task.dueDate ?? null),
+      due_datetime: currentTask.recurring ? undefined : (task.dueDatetimeUtc ?? null),
+      due_string: currentTask.recurring ? undefined : (!task.dueDate && !task.dueDatetimeUtc ? null : undefined),
     });
 
     if (task.completed) {

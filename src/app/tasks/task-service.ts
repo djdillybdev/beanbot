@@ -362,7 +362,6 @@ export class TaskService {
     this.logger?.debug('Refreshing task cache with full records', { taskCount: tasks.length });
     for (const task of tasks) {
       await this.taskMapRepository.upsert(task);
-      await this.habitService?.syncTask(task);
     }
   }
 
@@ -385,7 +384,6 @@ export class TaskService {
         url: task.url,
         taskStatus: 'active',
       });
-      await this.habitService?.syncTask(task);
     }
   }
 

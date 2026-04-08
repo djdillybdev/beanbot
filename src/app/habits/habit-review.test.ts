@@ -78,13 +78,13 @@ describe('habit review stats', () => {
       [],
       [
         {
-          habitId: 1,
+          habitId: 'task-1',
           title: 'Read',
           currentStreak: 3,
           completedToday: true,
         },
         {
-          habitId: 2,
+          habitId: 'task-2',
           title: 'Meditate',
           currentStreak: 1,
           completedToday: false,
@@ -92,7 +92,7 @@ describe('habit review stats', () => {
       ],
       [
         {
-          habitId: 3,
+          habitId: 'task-3',
           title: 'Stretch',
           rawRecurrenceText: 'every first business day',
           activeStatus: 'due_today',

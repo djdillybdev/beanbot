@@ -4,7 +4,6 @@ import type { AppConfig } from '../config';
 import type { MigrationRunResult } from '../db/migrate';
 import { OAuthTokenRepository } from '../db/oauth-token-repository';
 import { CalendarEventMapRepository } from '../db/calendar-event-map-repository';
-import { HabitRepository } from '../db/habit-repository';
 import { ObsidianSyncStateRepository } from '../db/obsidian-sync-state-repository';
 import { ReminderJobRepository } from '../db/reminder-job-repository';
 import { TodoistTaskMapRepository } from '../db/todoist-task-map-repository';
@@ -28,7 +27,6 @@ interface CreateServerDependencies {
   tokenRepository: OAuthTokenRepository;
   todoistTaskMapRepository: TodoistTaskMapRepository;
   calendarEventMapRepository: CalendarEventMapRepository;
-  habitRepository: HabitRepository;
   reminderJobRepository: ReminderJobRepository;
   obsidianSyncStateRepository: ObsidianSyncStateRepository;
   todoistOAuthService: TodoistOAuthService;
@@ -43,7 +41,6 @@ export function createServer({
   tokenRepository,
   todoistTaskMapRepository,
   calendarEventMapRepository,
-  habitRepository,
   reminderJobRepository,
   obsidianSyncStateRepository,
   todoistOAuthService,
@@ -61,7 +58,7 @@ export function createServer({
     const [taskCache, eventCache, habitSummary, reminderSummary, obsidianState] = await Promise.all([
       todoistTaskMapRepository.getCacheSummary(),
       calendarEventMapRepository.getCacheSummary(),
-      habitRepository.getSummary(),
+      todoistTaskMapRepository.getHabitSummary(),
       reminderJobRepository.getSummary(),
       obsidianSyncStateRepository.getState(),
     ]);

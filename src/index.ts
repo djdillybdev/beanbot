@@ -16,8 +16,7 @@ import { OAuthTokenRepository } from './db/oauth-token-repository';
 import { PeriodStatusMessageRepository } from './db/period-status-message-repository';
 import { ReminderJobRepository } from './db/reminder-job-repository';
 import { TodoistTaskMapRepository } from './db/todoist-task-map-repository';
-import { HabitRepository } from './db/habit-repository';
-import { HabitCompletionRepository } from './db/habit-completion-repository';
+import { TaskCompletionRepository } from './db/task-completion-repository';
 import { GoogleCalendarClient } from './integrations/google-calendar/client';
 import { GoogleCalendarOAuthService } from './integrations/google-calendar/oauth';
 import { TodoistClient } from './integrations/todoist/client';
@@ -86,8 +85,7 @@ async function main() {
   const tokenRepository = new OAuthTokenRepository(db);
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
-  const habitRepository = new HabitRepository(db);
-  const habitCompletionRepository = new HabitCompletionRepository(db);
+  const taskCompletionRepository = new TaskCompletionRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
   const periodStatusMessageRepository = new PeriodStatusMessageRepository(db);
   const obsidianSyncStateRepository = new ObsidianSyncStateRepository(db);
@@ -122,8 +120,8 @@ async function main() {
   );
   const habitService = new HabitService(
     config.timezone,
-    habitRepository,
-    habitCompletionRepository,
+    todoistTaskMapRepository,
+    taskCompletionRepository,
     logger.child({ subsystem: 'habit' }),
   );
   const taskService = new TaskService(
@@ -163,7 +161,6 @@ async function main() {
     actionLogRepository,
     todoistTaskMapRepository,
     calendarEventMapRepository,
-    habitRepository,
     reminderJobRepository,
     obsidianTaskRepository,
     obsidianNoteIndexRepository,
@@ -200,7 +197,6 @@ async function main() {
     tokenRepository,
     todoistTaskMapRepository,
     calendarEventMapRepository,
-    habitRepository,
     reminderJobRepository,
     obsidianSyncStateRepository,
     todoistOAuthService,

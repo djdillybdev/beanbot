@@ -84,6 +84,7 @@ export class TodayReviewService {
     const completedTodayTasksRaw = completedTaskResult.status === 'fulfilled' ? completedTaskResult.value : [];
     const { nonHabits: overdueTasks } = splitTasksByHabitLabel(overdueTasksRaw);
     const { nonHabits: dueTodayTasks } = splitTasksByHabitLabel(dueTodayTasksRaw);
+    await this.syncExternalTaskCompletions(completedTodayTasksRaw);
     const completedTodayTasks = await this.filterCompletedPlanningTasks(completedTodayTasksRaw);
     const result = {
       overdueTasks,
@@ -122,6 +123,7 @@ export class TodayReviewService {
     const daysRemaining = Math.max(getDateDistance(today, bounds.endExclusiveDate), 1);
     const base = await this.getPeriodStatusReview(bounds.startDate, bounds.endExclusiveDate, daysRemaining);
     const completedTasks = await this.getCompletedTasksForRange(bounds.startUtc, bounds.endUtc);
+    await this.syncExternalTaskCompletions(completedTasks);
 
     return {
       ...base,
@@ -174,7 +176,7 @@ export class TodayReviewService {
   async getHabitReview(now = new Date()): Promise<HabitReviewResult> {
     this.logger?.debug('Building habit review');
     const todoistStatus = await this.buildTodoistStatus();
-    const [taskResult, activeTaskResult, completedHabitResult] = await Promise.allSettled([
+    const [taskResult, activeTaskResult, completedTaskResult] = await Promise.allSettled([
       todoistStatus.connected
         ? this.todoistClient.getDailyTasks()
         : Promise.resolve({ overdueTasks: [], dueTodayTasks: [] }),
@@ -182,28 +184,27 @@ export class TodayReviewService {
         ? this.todoistClient.getAllActiveTaskRecords()
         : Promise.resolve([]),
       todoistStatus.connected
-        ? this.todoistClient.getCompletedHabitTasksForToday(now)
+        ? this.todoistClient.getCompletedTasksForToday(now)
         : Promise.resolve([]),
     ]);
 
-    if (taskResult.status === 'rejected' || activeTaskResult.status === 'rejected' || completedHabitResult.status === 'rejected') {
+    if (taskResult.status === 'rejected' || activeTaskResult.status === 'rejected' || completedTaskResult.status === 'rejected') {
       todoistStatus.connected = false;
       todoistStatus.message = [
         taskResult.status === 'rejected' ? taskResult.reason : null,
         activeTaskResult.status === 'rejected' ? activeTaskResult.reason : null,
-        completedHabitResult.status === 'rejected' ? completedHabitResult.reason : null,
+        completedTaskResult.status === 'rejected' ? completedTaskResult.reason : null,
       ].find(Boolean) instanceof Error
-        ? ([taskResult, activeTaskResult, completedHabitResult].find((result) => result.status === 'rejected') as PromiseRejectedResult).reason.message
+        ? ([taskResult, activeTaskResult, completedTaskResult].find((result) => result.status === 'rejected') as PromiseRejectedResult).reason.message
         : 'Task fetch failed.';
     }
 
     const tasks = taskResult.status === 'fulfilled' ? taskResult.value : { overdueTasks: [], dueTodayTasks: [] };
     const activeTasks = activeTaskResult.status === 'fulfilled' ? activeTaskResult.value : [];
-    const completedHabitTasks = completedHabitResult.status === 'fulfilled' ? completedHabitResult.value : [];
+    const completedTasks = completedTaskResult.status === 'fulfilled' ? completedTaskResult.value : [];
 
-    await this.habitService.syncActiveTasks(activeTasks, now);
-    await this.syncExternalHabitCompletionsForToday(completedHabitTasks);
-    await this.habitService.refreshAllActiveMetrics(now);
+    await this.taskService?.rememberTasks(activeTasks);
+    await this.syncExternalTaskCompletions(completedTasks);
 
     const overdueHabits = splitTasksByHabitLabel(tasks.overdueTasks).habits;
     const dueTodayHabits = splitTasksByHabitLabel(tasks.dueTodayTasks).habits;
@@ -374,18 +375,18 @@ export class TodayReviewService {
     const completedHabits = await this.habitService.listCompletedForLocalDate(targetDate);
 
     return completedHabits
-      .map(({ habit, completion }) =>
+      .map(({ task, completion }) =>
         mapCompletedHabitEntry(
           {
-            id: habit.todoistTaskId ?? String(habit.id),
-            title: habit.title,
-            normalizedTitle: habit.normalizedTitle,
+            id: task.id,
+            title: task.title,
+            normalizedTitle: task.normalizedTitle,
             labels: ['habit'],
             completedAtUtc: completion.completedAtUtc,
-            url: habit.todoistUrl ?? '',
-            priority: 1,
-            projectId: habit.projectId,
-            projectName: habit.projectName,
+            url: task.url,
+            priority: task.priority,
+            projectId: task.projectId,
+            projectName: task.projectName,
           },
           this.config.timezone,
         ),
@@ -393,15 +394,15 @@ export class TodayReviewService {
       .sort((left, right) => left.completedSortKey.localeCompare(right.completedSortKey));
   }
 
-  private async syncExternalHabitCompletionsForToday(completedHabitTasks: Awaited<ReturnType<TodoistClient['getCompletedHabitTasksForToday']>>) {
-    if (completedHabitTasks.length === 0) {
+  private async syncExternalTaskCompletions(completedTasks: CompletedTaskSummary[]) {
+    if (completedTasks.length === 0) {
       return;
     }
 
     try {
-      await this.habitService.recordExternalCompletions(completedHabitTasks);
+      await this.habitService.recordExternalCompletions(completedTasks);
     } catch (error) {
-      this.logger?.warn('External habit completion sync failed', {
+      this.logger?.warn('External task completion sync failed', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

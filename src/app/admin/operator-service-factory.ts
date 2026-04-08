@@ -2,8 +2,7 @@ import { createConfig } from '../../config';
 import { createDb } from '../../db/client';
 import { ActionLogRepository } from '../../db/action-log-repository';
 import { CalendarEventMapRepository } from '../../db/calendar-event-map-repository';
-import { HabitCompletionRepository } from '../../db/habit-completion-repository';
-import { HabitRepository } from '../../db/habit-repository';
+import { TaskCompletionRepository } from '../../db/task-completion-repository';
 import { inspectMigrationHealth } from '../../db/migrate';
 import { OAuthTokenRepository } from '../../db/oauth-token-repository';
 import { ObsidianNoteIndexRepository } from '../../db/obsidian-note-index-repository';
@@ -38,8 +37,7 @@ export function createOperatorServiceForScript(subsystem = 'admin-script') {
   const tokenRepository = new OAuthTokenRepository(db);
   const todoistTaskMapRepository = new TodoistTaskMapRepository(db);
   const calendarEventMapRepository = new CalendarEventMapRepository(db);
-  const habitRepository = new HabitRepository(db);
-  const habitCompletionRepository = new HabitCompletionRepository(db);
+  const taskCompletionRepository = new TaskCompletionRepository(db);
   const reminderJobRepository = new ReminderJobRepository(db);
   const obsidianTaskRepository = new ObsidianTaskRepository(db);
   const obsidianNoteIndexRepository = new ObsidianNoteIndexRepository(db);
@@ -62,8 +60,8 @@ export function createOperatorServiceForScript(subsystem = 'admin-script') {
   );
   const habitService = new HabitService(
     config.timezone,
-    habitRepository,
-    habitCompletionRepository,
+    todoistTaskMapRepository,
+    taskCompletionRepository,
     logger.child({ subsystem: 'habit' }),
   );
   const taskService = new TaskService(
@@ -107,7 +105,6 @@ export function createOperatorServiceForScript(subsystem = 'admin-script') {
     actionLogRepository,
     todoistTaskMapRepository,
     calendarEventMapRepository,
-    habitRepository,
     reminderJobRepository,
     obsidianTaskRepository,
     obsidianNoteIndexRepository,

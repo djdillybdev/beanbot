@@ -1,4 +1,5 @@
 export type TaskStatus = 'active' | 'completed' | 'deleted';
+export type TaskCompletionSource = 'bot' | 'todoist_external';
 
 export interface TodoistTaskRecord {
   id: string;
@@ -20,6 +21,27 @@ export interface TodoistTaskRecord {
   labels?: string[];
   url: string;
   taskStatus: TaskStatus;
+}
+
+export interface TaskCompletionRecord {
+  eventKey: string;
+  todoistTaskId: string;
+  title: string;
+  normalizedTitle: string;
+  priority: number;
+  projectId?: string;
+  projectName?: string;
+  completedAtUtc: string;
+  completedLocalDate: string;
+  source: TaskCompletionSource;
+  recurring: boolean;
+  dueDate?: string;
+  dueDateTimeUtc?: string;
+  dueString?: string;
+  labels?: string[];
+  url: string;
+  provisional: boolean;
+  createdAtUtc: string;
 }
 
 export interface TaskCommandResult {

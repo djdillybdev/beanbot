@@ -76,6 +76,11 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
   lastSeenPriority: integer('last_seen_priority').notNull().default(1),
   lastSeenProjectId: text('last_seen_project_id'),
   lastSeenProjectName: text('last_seen_project_name'),
+  lastSeenSectionId: text('last_seen_section_id'),
+  lastSeenParentId: text('last_seen_parent_id'),
+  lastSeenOrderIndex: integer('last_seen_order_index'),
+  lastSeenCreatedAtUtc: text('last_seen_created_at_utc'),
+  lastSeenUpdatedAtUtc: text('last_seen_updated_at_utc'),
   lastSeenDueLabel: text('last_seen_due_label'),
   lastSeenDueDate: text('last_seen_due_date'),
   lastSeenDueDatetimeUtc: text('last_seen_due_datetime_utc'),
@@ -92,6 +97,37 @@ export const todoistTaskMap = sqliteTable('todoist_task_map', {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const taskCompletion = sqliteTable(
+  'task_completion',
+  {
+    eventKey: text('event_key').primaryKey(),
+    todoistTaskId: text('todoist_task_id').notNull(),
+    normalizedTitle: text('normalized_title').notNull(),
+    title: text('title').notNull(),
+    completedAtUtc: text('completed_at_utc').notNull(),
+    completedLocalDate: text('completed_local_date').notNull(),
+    source: text('source').notNull(),
+    priority: integer('priority').notNull().default(1),
+    projectId: text('project_id'),
+    projectName: text('project_name'),
+    recurring: integer('recurring', { mode: 'boolean' }).notNull().default(false),
+    dueDate: text('due_date'),
+    dueDatetimeUtc: text('due_datetime_utc'),
+    dueString: text('due_string'),
+    labelsCsv: text('labels_csv'),
+    url: text('url').notNull(),
+    provisional: integer('provisional', { mode: 'boolean' }).notNull().default(false),
+    createdAtUtc: text('created_at_utc')
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => ({
+    taskIdx: index('task_completion_task_idx').on(table.todoistTaskId, table.completedAtUtc),
+    localDateIdx: index('task_completion_local_date_idx').on(table.completedLocalDate, table.completedAtUtc),
+    provisionalIdx: index('task_completion_task_local_date_idx').on(table.todoistTaskId, table.completedLocalDate, table.provisional),
+  }),
+);
 
 export const habitCompletionHistory = sqliteTable(
   'habit_completion_history',

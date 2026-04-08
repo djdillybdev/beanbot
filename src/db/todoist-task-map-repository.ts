@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, like, or } from 'drizzle-orm';
 import type { Database } from './types';
 import { todoistTaskMap } from './schema';
 import type { TaskStatus, TodoistTaskRecord } from '../domain/task';
+import { normalizeHabitSchedule } from '../app/habits/habit-schedule';
 
 interface TodoistTaskMapRowInput {
   id: string;
@@ -12,6 +13,11 @@ interface TodoistTaskMapRowInput {
   recurring?: boolean;
   projectId?: string;
   projectName?: string;
+  sectionId?: string;
+  parentId?: string;
+  orderIndex?: number;
+  createdAtUtc?: string;
+  updatedAtUtc?: string;
   dueLabel?: string;
   dueDate?: string;
   dueDateTimeUtc?: string;
@@ -36,6 +42,11 @@ export class TodoistTaskMapRepository {
         lastSeenPriority: task.priority,
         lastSeenProjectId: task.projectId ?? null,
         lastSeenProjectName: task.projectName ?? null,
+        lastSeenSectionId: task.sectionId ?? null,
+        lastSeenParentId: task.parentId ?? null,
+        lastSeenOrderIndex: task.orderIndex ?? null,
+        lastSeenCreatedAtUtc: task.createdAtUtc ?? null,
+        lastSeenUpdatedAtUtc: task.updatedAtUtc ?? null,
         lastSeenDueLabel: task.dueLabel ?? null,
         lastSeenDueDate: task.dueDate ?? null,
         lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
@@ -55,6 +66,11 @@ export class TodoistTaskMapRepository {
           lastSeenPriority: task.priority,
           lastSeenProjectId: task.projectId ?? null,
           lastSeenProjectName: task.projectName ?? null,
+          lastSeenSectionId: task.sectionId ?? null,
+          lastSeenParentId: task.parentId ?? null,
+          lastSeenOrderIndex: task.orderIndex ?? null,
+          lastSeenCreatedAtUtc: task.createdAtUtc ?? null,
+          lastSeenUpdatedAtUtc: task.updatedAtUtc ?? null,
           lastSeenDueLabel: task.dueLabel ?? null,
           lastSeenDueDate: task.dueDate ?? null,
           lastSeenDueDatetimeUtc: task.dueDateTimeUtc ?? null,
@@ -174,6 +190,25 @@ export class TodoistTaskMapRepository {
       ),
     };
   }
+
+  async listCurrentHabitTasks(): Promise<Array<TodoistTaskRecord & { updatedAtUtc: string }>> {
+    return (await this.listByLabel('habit', ['active']))
+      .filter((task) => task.recurring === true);
+  }
+
+  async getHabitSummary() {
+    const rows = await this.listCurrentHabitTasks();
+
+    return {
+      totalCount: rows.length,
+      activeCount: rows.length,
+      unparsedActiveCount: rows.filter((row) => normalizeHabitSchedule(row.dueString, row.recurring).kind === 'unparsed').length,
+      latestUpdatedAtUtc: rows.reduce<string | null>(
+        (latest, row) => (!latest || row.updatedAtUtc > latest ? row.updatedAtUtc : latest),
+        null,
+      ),
+    };
+  }
 }
 
 function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTaskRecord {
@@ -185,6 +220,11 @@ function mapRowToTaskRecord(row: typeof todoistTaskMap.$inferSelect): TodoistTas
     recurring: row.lastSeenRecurring,
     projectId: row.lastSeenProjectId ?? undefined,
     projectName: row.lastSeenProjectName ?? undefined,
+    sectionId: row.lastSeenSectionId ?? undefined,
+    parentId: row.lastSeenParentId ?? undefined,
+    orderIndex: row.lastSeenOrderIndex ?? undefined,
+    createdAtUtc: row.lastSeenCreatedAtUtc ?? undefined,
+    updatedAtUtc: row.lastSeenUpdatedAtUtc ?? undefined,
     dueLabel: row.lastSeenDueLabel ?? undefined,
     dueDate: row.lastSeenDueDate ?? undefined,
     dueDateTimeUtc: row.lastSeenDueDatetimeUtc ?? undefined,

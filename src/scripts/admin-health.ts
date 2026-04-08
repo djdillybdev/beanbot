@@ -1,7 +1,6 @@
 import { createConfig } from '../config';
 import { createDb } from '../db/client';
 import { CalendarEventMapRepository } from '../db/calendar-event-map-repository';
-import { HabitRepository } from '../db/habit-repository';
 import { inspectMigrationHealth } from '../db/migrate';
 import { ObsidianSyncStateRepository } from '../db/obsidian-sync-state-repository';
 import { OAuthTokenRepository } from '../db/oauth-token-repository';
@@ -29,7 +28,6 @@ async function main() {
   const tokenRepository = new OAuthTokenRepository(db);
   const taskCacheRepository = new TodoistTaskMapRepository(db);
   const eventCacheRepository = new CalendarEventMapRepository(db);
-  const habitRepository = new HabitRepository(db);
   const reminderRepository = new ReminderJobRepository(db);
   const obsidianSyncStateRepository = new ObsidianSyncStateRepository(db);
   const json = isJsonOutputRequested();
@@ -45,7 +43,7 @@ async function main() {
       tokenRepository.getByProvider('google-calendar'),
       taskCacheRepository.getCacheSummary(),
       eventCacheRepository.getCacheSummary(),
-      habitRepository.getSummary(),
+      taskCacheRepository.getHabitSummary(),
       reminderRepository.getSummary(),
       obsidianSyncStateRepository.getState(),
     ]);

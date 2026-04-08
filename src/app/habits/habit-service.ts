@@ -1,23 +1,19 @@
-import type { DailyTaskSummary, HabitStreakSummary, UnparsedHabitSummary } from '../../domain/daily-review';
-import type {
-  HabitActiveStatus,
-  HabitCompletionSource,
-  HabitRecord,
-} from '../../domain/habit';
-import { HabitCompletionRepository } from '../../db/habit-completion-repository';
-import { HabitRepository } from '../../db/habit-repository';
-import type { TodoistCompletedTaskRecord, TodoistTaskRecord } from '../../domain/task';
+import type { CompletedTaskSummary, HabitStreakSummary, UnparsedHabitSummary } from '../../domain/daily-review';
+import type { TaskCompletionSource, TodoistTaskRecord } from '../../domain/task';
+import { TodoistTaskMapRepository } from '../../db/todoist-task-map-repository';
+import { TaskCompletionRepository } from '../../db/task-completion-repository';
 import type { Logger } from '../../logging/logger';
-import { normalizeTaskTitle } from '../../utils/text';
 import { getLocalDateParts } from '../../utils/time';
 import { computeHabitMetrics, normalizeHabitSchedule } from './habit-schedule';
 import { hasHabitLabel } from './habit-review';
+import type { HabitActiveStatus, HabitMetrics } from '../../domain/habit';
 
 type HabitTaskLike = Pick<
   TodoistTaskRecord,
   | 'id'
   | 'title'
   | 'normalizedTitle'
+  | 'priority'
   | 'recurring'
   | 'projectId'
   | 'projectName'
@@ -28,11 +24,12 @@ type HabitTaskLike = Pick<
   | 'labels'
 >;
 
-type CompletedHabitTaskLike = Pick<
-  TodoistCompletedTaskRecord,
+type CompletedTaskLike = Pick<
+  CompletedTaskSummary,
   | 'id'
   | 'title'
   | 'normalizedTitle'
+  | 'priority'
   | 'recurring'
   | 'projectId'
   | 'projectName'
@@ -46,238 +43,127 @@ type CompletedHabitTaskLike = Pick<
 export class HabitService {
   constructor(
     private readonly timezone: string,
-    private readonly habitRepository: HabitRepository,
-    private readonly habitCompletionRepository: HabitCompletionRepository,
+    private readonly taskMapRepository: TodoistTaskMapRepository,
+    private readonly taskCompletionRepository: TaskCompletionRepository,
     private readonly logger?: Logger,
   ) {}
 
-  async syncTask(task: HabitTaskLike | DailyTaskSummary) {
-    if (!isTrackedHabitTask(task)) {
-      await this.habitRepository.markInactiveByTodoistTaskId(task.id);
-      return null;
-    }
-
-    const today = getLocalDateParts(new Date(), this.timezone).date;
-
-    return this.habitRepository.upsert({
-      todoistTaskId: task.id,
-      title: task.title,
-      normalizedTitle: 'normalizedTitle' in task && task.normalizedTitle
-        ? task.normalizedTitle
-        : normalizeTaskTitle(task.title),
-      isActive: true,
-      projectId: task.projectId,
-      projectName: task.projectName,
-      todoistUrl: task.url,
-      rawRecurrenceText: task.dueString,
-      currentDueDate: getTaskDueDate(task),
-      currentDueDatetimeUtc: 'dueDateTimeUtc' in task ? task.dueDateTimeUtc : undefined,
-      currentDueString: task.dueString,
-      activeStatus: classifyHabitTaskStatus({
-        dueDate: getTaskDueDate(task),
-        dueDateTimeUtc: 'dueDateTimeUtc' in task ? task.dueDateTimeUtc : undefined,
-      }, today),
-      schedule: normalizeHabitSchedule(task.dueString, task.recurring),
-    });
-  }
-
-  async syncTasks(tasks: Array<HabitTaskLike | DailyTaskSummary>) {
-    for (const task of tasks) {
-      await this.syncTask(task);
-    }
-  }
-
-  async syncActiveTasks(tasks: HabitTaskLike[], now = new Date()) {
-    const today = getLocalDateParts(now, this.timezone).date;
-    const activeTaskIds = new Set<string>();
-
-    for (const task of tasks) {
-      if (!isTrackedHabitTask(task)) {
-        continue;
-      }
-
-      activeTaskIds.add(task.id);
-      await this.habitRepository.upsert({
-        todoistTaskId: task.id,
-        title: task.title,
-        normalizedTitle: task.normalizedTitle,
-        isActive: true,
-        activeStatus: classifyHabitTaskStatus(task, today),
-        projectId: task.projectId,
-        projectName: task.projectName,
-        todoistUrl: task.url,
-        rawRecurrenceText: task.dueString,
-        currentDueDate: task.dueDate,
-        currentDueDatetimeUtc: task.dueDateTimeUtc,
-        currentDueString: task.dueString,
-        schedule: normalizeHabitSchedule(task.dueString, task.recurring),
-      });
-    }
-
-    const existing = await this.habitRepository.listActive();
-
-    for (const habit of existing) {
-      if (habit.todoistTaskId && !activeTaskIds.has(habit.todoistTaskId)) {
-        await this.habitRepository.markInactiveByTodoistTaskId(habit.todoistTaskId);
-      }
-    }
-  }
-
   async recordCompletion(
-    task: HabitTaskLike | CompletedHabitTaskLike,
+    task: HabitTaskLike | CompletedTaskLike,
     completedAtUtc: string,
-    source: HabitCompletionSource,
+    source: TaskCompletionSource,
   ) {
-    let habit = await this.resolveHabitForTask(task);
-
-    if (!habit) {
-      return;
+    if (source === 'todoist_external') {
+      await this.taskCompletionRepository.recordExternalCompletion(task, completedAtUtc, this.timezone);
+    } else {
+      await this.taskCompletionRepository.recordBotCompletion(task, completedAtUtc, this.timezone);
     }
 
-    const completedLocalDate = getLocalDateParts(new Date(completedAtUtc), this.timezone).date;
-
-    await this.habitCompletionRepository.upsert({
-      habitId: habit.id,
+    this.logger?.debug('Recorded task completion for habit tracking', {
       todoistTaskId: task.id,
-      completedAtUtc,
-      completedLocalDate,
+      completedLocalDate: getLocalDateParts(new Date(completedAtUtc), this.timezone).date,
       source,
-    });
-    await this.refreshHabitMetrics(habit.id);
-    habit = await this.habitRepository.findByTodoistTaskId(task.id) ?? habit;
-
-    this.logger?.debug('Recorded habit completion', {
-      habitId: habit.id,
-      todoistTaskId: task.id,
-      completedLocalDate,
-      source,
+      habitQualified: isTrackedHabitTask(task),
     });
   }
 
-  async recordExternalCompletions(
-    completedTasks: TodoistCompletedTaskRecord[],
-  ) {
+  async recordExternalCompletions(completedTasks: CompletedTaskSummary[]) {
     for (const completedTask of completedTasks) {
-      if (!isTrackedHabitTask(completedTask)) {
-        continue;
-      }
-
-      await this.recordCompletion(
-        completedTask,
-        completedTask.completedAtUtc,
-        'todoist_external',
-      );
+      await this.recordCompletion(completedTask, completedTask.completedAtUtc, 'todoist_external');
     }
   }
 
   async deleteLatestCompletionForTask(todoistTaskId: string) {
-    const habit = await this.habitRepository.findByTodoistTaskId(todoistTaskId);
-
-    if (!habit) {
-      return;
-    }
-
-    await this.habitCompletionRepository.deleteLatestForTask(todoistTaskId);
-    await this.refreshHabitMetrics(habit.id);
+    await this.taskCompletionRepository.deleteLatestForTask(todoistTaskId);
   }
 
   async listCompletedForLocalDate(localDate: string) {
-    const completions = await this.habitCompletionRepository.listByLocalDate(localDate);
-    const habits = await this.habitRepository.listActive();
-    const habitById = new Map(habits.map((habit) => [habit.id, habit]));
+    const [completions, currentHabitTasks] = await Promise.all([
+      this.taskCompletionRepository.listByLocalDate(localDate),
+      this.listCurrentHabitTasks(),
+    ]);
+    const habitTaskById = new Map(currentHabitTasks.map((task) => [task.id, task]));
 
     return completions
       .map((completion) => {
-        const habit = habitById.get(completion.habitId);
+        const task = habitTaskById.get(completion.todoistTaskId);
 
-        if (!habit) {
+        if (!task) {
           return null;
         }
 
-        return {
-          habit,
-          completion,
-        };
+        return { task, completion };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }
 
   async listActiveStreaks(now: Date): Promise<HabitStreakSummary[]> {
     const today = getLocalDateParts(now, this.timezone).date;
-    const habits = await this.habitRepository.listActive();
+    const tasks = await this.listCurrentHabitTasks();
 
-    return habits
-      .filter((habit) => habit.schedule.kind !== 'unparsed')
-      .map((habit) => ({
-        habitId: habit.id,
-        title: habit.title,
-        currentStreak: habit.currentStreak,
-        completedToday: habit.lastCompletedLocalDate === today,
-      }))
-      .sort((left, right) => {
-        return (
+    return Promise.all(
+      tasks.map(async (task) => {
+        const metrics = await this.computeMetricsForTask(task, now);
+
+        return {
+          habitId: task.id,
+          title: task.title,
+          currentStreak: metrics.currentStreak,
+          completedToday: metrics.lastCompletedLocalDate === today,
+        };
+      }),
+    ).then((streaks) =>
+      streaks
+        .filter((streak) => {
+          const task = tasks.find((entry) => entry.id === streak.habitId);
+          return normalizeHabitSchedule(task?.dueString, task?.recurring).kind !== 'unparsed';
+        })
+        .sort((left, right) => (
           Number(right.completedToday) - Number(left.completedToday) ||
           right.currentStreak - left.currentStreak ||
           left.title.localeCompare(right.title)
-        );
-      });
-  }
-
-  async listActiveUnparsedHabits(): Promise<UnparsedHabitSummary[]> {
-    const habits = await this.habitRepository.listActive();
-
-    return habits
-      .filter((habit) => habit.schedule.kind === 'unparsed')
-      .map((habit) => ({
-        habitId: habit.id,
-        title: habit.title,
-        rawRecurrenceText: habit.schedule.rawText ?? habit.rawRecurrenceText,
-        activeStatus: habit.activeStatus,
-      }))
-      .sort((left, right) => {
-        return compareActiveStatus(left.activeStatus, right.activeStatus) || left.title.localeCompare(right.title);
-      });
-  }
-
-  async refreshAllActiveMetrics(now = new Date()) {
-    const habits = await this.habitRepository.listActive();
-
-    for (const habit of habits) {
-      await this.refreshHabitMetrics(habit.id, now);
-    }
-  }
-
-  private async resolveHabitForTask(task: HabitTaskLike): Promise<HabitRecord | null> {
-    const existing = await this.habitRepository.findByTodoistTaskId(task.id);
-
-    if (existing) {
-      return existing;
-    }
-
-    if (!isTrackedHabitTask(task)) {
-      return null;
-    }
-
-    return this.syncTask(task);
-  }
-
-  private async refreshHabitMetrics(habitId: number, now = new Date()) {
-    const habits = await this.habitRepository.listActive();
-    const habit = habits.find((entry) => entry.id === habitId);
-
-    if (!habit) {
-      return;
-    }
-
-    const completions = await this.habitCompletionRepository.listForHabit(habitId);
-    const metrics = computeHabitMetrics(
-      getLocalDateParts(now, this.timezone).date,
-      habit.schedule,
-      completions.map((completion) => completion.completedLocalDate),
-      { activeStatus: habit.activeStatus },
+        )),
     );
+  }
 
-    await this.habitRepository.updateMetrics(habitId, metrics);
+  async listActiveUnparsedHabits(now = new Date()): Promise<UnparsedHabitSummary[]> {
+    const today = getLocalDateParts(now, this.timezone).date;
+    const tasks = await this.listCurrentHabitTasks();
+
+    return tasks
+      .map((task) => ({
+        habitId: task.id,
+        title: task.title,
+        rawRecurrenceText: task.dueString,
+        activeStatus: classifyHabitTaskStatus(task, today),
+        scheduleKind: normalizeHabitSchedule(task.dueString, task.recurring).kind,
+      }))
+      .filter((habit) => habit.scheduleKind === 'unparsed')
+      .map(({ scheduleKind: _scheduleKind, ...habit }) => habit)
+      .sort((left, right) => (
+        compareActiveStatus(left.activeStatus, right.activeStatus) ||
+        left.title.localeCompare(right.title)
+      ));
+  }
+
+  private async listCurrentHabitTasks() {
+    return this.taskMapRepository.listCurrentHabitTasks();
+  }
+
+  private async computeMetricsForTask(task: HabitTaskLike, now: Date): Promise<HabitMetrics> {
+    const completions = await this.taskCompletionRepository.listForTask(task.id);
+    const completionDates = [...new Set(
+      completions
+        .filter((completion) => completion.recurring && hasHabitLabel(completion.labels))
+        .map((completion) => completion.completedLocalDate),
+    )];
+
+    return computeHabitMetrics(
+      getLocalDateParts(now, this.timezone).date,
+      normalizeHabitSchedule(task.dueString, task.recurring),
+      completionDates,
+      { activeStatus: classifyHabitTaskStatus(task, getLocalDateParts(now, this.timezone).date) },
+    );
   }
 }
 
@@ -304,10 +190,6 @@ export function classifyHabitTaskStatus(
   }
 
   return 'future';
-}
-
-function getTaskDueDate(task: HabitTaskLike | DailyTaskSummary) {
-  return (task as HabitTaskLike).dueDate ?? (task as DailyTaskSummary).dateKey;
 }
 
 function compareActiveStatus(

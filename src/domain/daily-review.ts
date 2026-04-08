@@ -26,12 +26,17 @@ export interface UndatedTaskSummary {
 export interface CompletedTaskSummary {
   id: string;
   title: string;
+  normalizedTitle?: string;
   priority: number;
   projectId?: string;
   projectName?: string;
   completedAtUtc: string;
   completedLabel: string;
   completedSortKey: string;
+  recurring?: boolean;
+  dueDate?: string;
+  dueDateTimeUtc?: string;
+  dueString?: string;
   labels?: string[];
   url: string;
 }
@@ -81,14 +86,14 @@ export interface UpcomingTaskReviewResult {
 }
 
 export interface HabitStreakSummary {
-  habitId: number;
+  habitId: string;
   title: string;
   currentStreak: number;
   completedToday: boolean;
 }
 
 export interface UnparsedHabitSummary {
-  habitId: number;
+  habitId: string;
   title: string;
   rawRecurrenceText?: string;
   activeStatus: 'due_today' | 'overdue' | 'future' | 'inactive';
