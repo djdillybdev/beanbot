@@ -26,6 +26,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   PUBLIC_BASE_URL: z.string().url().optional(),
   OAUTH_STATE_SECRET: z.string().min(32, 'OAUTH_STATE_SECRET must be at least 32 characters').optional(),
+  TODOIST_API_TOKEN: z.string().trim().min(1).optional(),
   TODOIST_CLIENT_ID: z.string().min(1).optional(),
   TODOIST_CLIENT_SECRET: z.string().min(1).optional(),
   TODOIST_REDIRECT_URI: z.string().url().optional(),

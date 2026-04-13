@@ -9,7 +9,7 @@ import type {
 } from '../../domain/task';
 import type { StoredOAuthToken } from '../../domain/oauth';
 import { getLocalDateParts, formatLocalTime, getZonedDayBounds } from '../../utils/time';
-import { OAuthTokenRepository } from '../../db/oauth-token-repository';
+import type { OAuthTokenRepository } from '../../db/oauth-token-repository';
 import { normalizeTaskTitle } from '../../utils/text';
 
 const TODOIST_API_BASE_URL = 'https://api.todoist.com/api/v1';
@@ -96,19 +96,24 @@ interface TodoistSyncResponse {
 export class TodoistClient {
   constructor(
     private readonly config: AppConfig,
-    private readonly tokenRepository: OAuthTokenRepository,
+    private readonly tokenRepository: Pick<OAuthTokenRepository, 'getByProvider'>,
   ) {}
 
   isConfigured(): boolean {
     return Boolean(
-      this.config.env.OAUTH_STATE_SECRET &&
-        this.config.env.TODOIST_CLIENT_ID &&
-        this.config.env.TODOIST_CLIENT_SECRET &&
-        this.config.env.TODOIST_REDIRECT_URI,
+      this.config.env.TODOIST_API_TOKEN ||
+        (this.config.env.OAUTH_STATE_SECRET &&
+          this.config.env.TODOIST_CLIENT_ID &&
+          this.config.env.TODOIST_CLIENT_SECRET &&
+          this.config.env.TODOIST_REDIRECT_URI),
     );
   }
 
   async isConnected(): Promise<boolean> {
+    if (this.config.env.TODOIST_API_TOKEN) {
+      return true;
+    }
+
     return (await this.tokenRepository.getByProvider('todoist')) !== null;
   }
 
@@ -509,6 +514,17 @@ export class TodoistClient {
   }
 
   private async requireToken(): Promise<StoredOAuthToken> {
+    if (this.config.env.TODOIST_API_TOKEN) {
+      return {
+        provider: 'todoist',
+        accessToken: this.config.env.TODOIST_API_TOKEN,
+        refreshToken: null,
+        tokenType: 'Bearer',
+        scopeBlob: 'personal-api-token',
+        expiryUtc: null,
+      };
+    }
+
     const token = await this.tokenRepository.getByProvider('todoist');
 
     if (!token) {

@@ -47,12 +47,13 @@ async function main() {
       reminderRepository.getSummary(),
       obsidianSyncStateRepository.getState(),
     ]);
+  const todoistConnected = Boolean(config.env.TODOIST_API_TOKEN) || todoistToken !== null;
   const payload = {
     timestamp: new Date().toISOString(),
     databasePath: config.databasePath,
     migrationHealth,
     providers: {
-      todoist: buildProviderStatus(todoistToken !== null),
+      todoist: buildProviderStatus(todoistConnected),
       googleCalendar: buildProviderStatus(googleToken !== null),
     },
     caches: {

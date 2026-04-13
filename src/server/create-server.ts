@@ -64,8 +64,9 @@ export function createServer({
     ]);
     const runtime = healthRegistry.getSnapshot();
     const overall = buildOverallRuntimeSummary(runtime);
+    const todoistConnected = Boolean(config.env.TODOIST_API_TOKEN) || todoistToken !== null;
     const providers = {
-      todoist: buildProviderStatus(todoistToken !== null),
+      todoist: buildProviderStatus(todoistConnected),
       googleCalendar: buildProviderStatus(googleToken !== null),
     };
     const taskCacheDiagnostics = enrichLatestUpdateSummary(taskCache, 60 * 30);
@@ -86,7 +87,7 @@ export function createServer({
       guildId: config.env.DISCORD_GUILD_ID,
       startedAtUtc: runtime.startedAtUtc,
       startupComplete: runtime.startupComplete,
-      todoistConnected: todoistToken !== null,
+      todoistConnected,
       googleCalendarConnected: googleToken !== null,
       providers,
       migration: buildMigrationRuntimeSummary(migrationResult),
@@ -102,7 +103,7 @@ export function createServer({
     });
     logger.debug('Served health check', {
       status: runtime.status,
-      todoistConnected: todoistToken !== null,
+      todoistConnected,
       googleCalendarConnected: googleToken !== null,
     });
   });

@@ -425,7 +425,7 @@ export class TodayReviewService {
       return {
         configured: false,
         connected: false,
-        message: `Configure Todoist OAuth, then visit ${this.config.publicBaseUrl}/auth/todoist/start`,
+        message: `Configure TODOIST_API_TOKEN or Todoist OAuth. For OAuth, visit ${this.config.publicBaseUrl}/auth/todoist/start`,
       };
     }
 
@@ -435,7 +435,7 @@ export class TodayReviewService {
       connected,
       message: connected
         ? undefined
-        : `Connect Todoist at ${this.config.publicBaseUrl}/auth/todoist/start`,
+        : `Set TODOIST_API_TOKEN or connect Todoist at ${this.config.publicBaseUrl}/auth/todoist/start`,
     };
   }
 

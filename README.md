@@ -52,6 +52,7 @@ Copy `.env.example` to `.env` and fill in:
 - `HOST`
 - `PORT`
 - `PUBLIC_BASE_URL`
+- `TODOIST_API_TOKEN` (optional alternative to Todoist OAuth)
 - `TODOIST_CLIENT_ID`
 - `TODOIST_CLIENT_SECRET`
 - `TODOIST_REDIRECT_URI`
@@ -197,5 +198,7 @@ After the bot is running locally, open these in your browser:
 
 - Todoist: `/auth/todoist/start`
 - Google Calendar: `/auth/google/start`
+
+Todoist can also use `TODOIST_API_TOKEN` instead of OAuth. If that env var is set, Beanbot treats Todoist as connected without visiting the Todoist OAuth endpoint.
 
 If Google Calendar was already connected before phase 3, reconnect it so the bot receives write scope for event mutations.

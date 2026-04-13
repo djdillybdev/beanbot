@@ -423,6 +423,7 @@ function ensureHabitSchema(sqlite: Database, repairsApplied: string[]) {
       "url",
       false
     FROM "habit_completion_history"
+    WHERE true
     ON CONFLICT("event_key") DO NOTHING;
   `);
 
