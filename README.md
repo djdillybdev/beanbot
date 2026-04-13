@@ -82,6 +82,7 @@ bun run dev
 - `bun run admin:obsidian:status` prints Obsidian sync diagnostics and supports `--json`
 - `bun run admin:obsidian:conflicts` lists tracked Obsidian conflicts and repair hints
 - `bun run admin:obsidian:resolve <task_id> <retry-push|retry-delete|re-export>` runs a bounded Obsidian repair action
+- `bun run admin:obsidian:reset-from-todoist --confirm [--include-task-cache]` deletes tracked generated task notes and rebuilds Obsidian sync state from Todoist
 - `bun run admin:cache:inspect` prints cache freshness diagnostics and supports `--json`
 - `bun run admin:cache:rebuild [all|tasks|events]` rebuilds cache entries from providers
 - `bun run admin:reminders:retry-failed` resets failed reminder jobs back to pending
@@ -126,6 +127,7 @@ This currently supports Milestone 3 writeback for existing synced notes:
 - `/event delete` deletes a recent one-off Google Calendar event
 - `/admin ...` is an admin-only recovery surface for guild administrators:
   health, cache inspect/rebuild, reminders inspect/retry-failed, and Obsidian status/sync/conflict repair
+- local testing reset: `bun run admin:obsidian:reset-from-todoist --confirm` rebuilds tracked Obsidian task notes from Todoist without deleting Todoist tasks; add `--include-task-cache` to clear and repopulate the local task cache too
 
 ## Inbox capture
 

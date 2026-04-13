@@ -14,6 +14,7 @@
     "admin:obsidian:conflicts": "bun run src/scripts/admin-obsidian-conflicts.ts",
     "admin:obsidian:resolve": "bun run src/scripts/admin-obsidian-resolve.ts",
     "admin:obsidian:sync-once": "bun run src/scripts/admin-obsidian-sync-once.ts",
+    "admin:obsidian:reset-from-todoist": "bun run src/scripts/admin-obsidian-reset-from-todoist.ts",
     "admin:cache:inspect": "bun run src/scripts/admin-cache-inspect.ts",
     "admin:cache:rebuild": "bun run src/scripts/admin-cache-rebuild.ts",
     "admin:reminders:retry-failed": "bun run src/scripts/admin-reminders-retry-failed.ts",

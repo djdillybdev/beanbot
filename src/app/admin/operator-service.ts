@@ -44,6 +44,10 @@ export type ObsidianConflictKind =
 
 export type ObsidianResolveAction = 'retry-push' | 'retry-delete' | 're-export';
 
+export interface ObsidianResetFromTodoistOptions {
+  includeTaskCache?: boolean;
+}
+
 export interface ObsidianConflictSummary {
   taskId: string;
   title: string;
@@ -272,6 +276,29 @@ export class OperatorService {
     };
 
     await this.logOperatorAction('/admin obsidian sync-once', undefined, result);
+    return result;
+  }
+
+  async resetObsidianFromTodoist(options: ObsidianResetFromTodoistOptions = {}) {
+    const startedAt = Date.now();
+    const resetResult = await this.dependencies.obsidianSyncRuntime.resetFromTodoist();
+    let taskCacheRebuiltCount = 0;
+
+    if (options.includeTaskCache) {
+      await this.dependencies.todoistTaskMapRepository.deleteAll();
+      const activeTasks = await this.dependencies.todoistClient.getAllActiveTaskRecords();
+      await this.dependencies.taskService.rememberTasks(activeTasks);
+      taskCacheRebuiltCount = activeTasks.length;
+    }
+
+    const result = {
+      ...resetResult,
+      includeTaskCache: options.includeTaskCache ?? false,
+      taskCacheRebuiltCount,
+      totalDurationMs: Date.now() - startedAt,
+    };
+
+    await this.logOperatorAction('admin:obsidian:reset-from-todoist', options, result);
     return result;
   }
 

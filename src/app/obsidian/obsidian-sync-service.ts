@@ -12,6 +12,21 @@ import type { Logger } from '../../logging/logger';
 import { splitReservedLabels } from './project-labels';
 import type { TodoistTaskRecord } from '../../domain/task';
 
+export interface ObsidianResetFromTodoistResult {
+  action: 'obsidian.reset_from_todoist';
+  result: 'success';
+  durationMs: number;
+  trackedNoteCount: number;
+  deletedNoteCount: number;
+  missingTrackedNoteCount: number;
+  skippedUntrackedNoteCount: number;
+  importedTaskCount: number;
+  exportedTaskCount: number;
+  wroteFileCount: number;
+  nextSyncTokenPresent: boolean;
+  fullSync: boolean;
+}
+
 export class ObsidianSyncService {
   constructor(
     private readonly config: AppConfig,
@@ -116,29 +131,7 @@ export class ObsidianSyncService {
       const deleteResult = await this.pendingDeleteService.deletePendingTasks();
       const pushResult = await this.pendingPushService.pushPendingTasks();
 
-      const exportTasks = await this.taskRepository.listActiveForExport();
-      let writeCount = 0;
-
-      for (const task of exportTasks) {
-        const existingIndex = await this.noteIndexRepository.findByTaskId(task.todoistTaskId);
-        const exportResult = await this.vaultAdapter.exportTask(task, existingIndex?.filePath ?? null);
-
-        if (!existingIndex || existingIndex.contentHash !== exportResult.contentHash) {
-          writeCount += 1;
-        }
-
-        await this.noteIndexRepository.upsert({
-          todoistTaskId: task.todoistTaskId,
-          filePath: exportResult.relativePath,
-          contentHash: exportResult.contentHash,
-          metadataHash: exportResult.metadataHash,
-          lastFileMtimeUtc: exportResult.lastFileMtimeUtc,
-        });
-        await this.taskRepository.updateExportMetadata(task.todoistTaskId, {
-          contentHash: exportResult.metadataHash,
-          noteBody: exportResult.noteBody,
-        });
-      }
+      const exportResult = await this.exportActiveTasks();
 
       await this.syncStateRepository.touchFullSync();
       await this.syncEventRepository.insert({
@@ -155,8 +148,8 @@ export class ObsidianSyncService {
           conflictCount: scanResult.conflictCount,
           errorCount: scanResult.errorCount + deleteResult.deleteErrorCount,
           pushedTaskCount: pushResult.pushedTaskCount,
-          exportedTaskCount: exportTasks.length,
-          wroteFileCount: writeCount,
+          exportedTaskCount: exportResult.exportedTaskCount,
+          wroteFileCount: exportResult.wroteFileCount,
         }),
         result: 'success',
       });
@@ -172,8 +165,8 @@ export class ObsidianSyncService {
         conflictCount: scanResult.conflictCount,
         errorCount: scanResult.errorCount + deleteResult.deleteErrorCount,
         pushedTaskCount: pushResult.pushedTaskCount,
-        exportedTaskCount: exportTasks.length,
-        wroteFileCount: writeCount,
+        exportedTaskCount: exportResult.exportedTaskCount,
+        wroteFileCount: exportResult.wroteFileCount,
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
@@ -184,6 +177,90 @@ export class ObsidianSyncService {
         result: 'error',
       });
       this.logger.error('Obsidian sync pass failed', error, {
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
+  }
+
+  async resetFromTodoist(): Promise<ObsidianResetFromTodoistResult> {
+    if (!this.config.obsidianVaultPath) {
+      throw new Error('OBSIDIAN_VAULT_PATH is required for Obsidian sync.');
+    }
+
+    this.logger.warn('Starting Obsidian reset from Todoist', {
+      vaultPath: this.config.obsidianVaultPath,
+    });
+    const startedAt = Date.now();
+
+    try {
+      const [noteIndexes, taskNotePaths] = await Promise.all([
+        this.noteIndexRepository.listAll(),
+        this.vaultAdapter.listTaskNotePaths(),
+      ]);
+      const trackedPaths = new Set(noteIndexes.map((noteIndex) => noteIndex.filePath));
+      const skippedUntrackedNoteCount = taskNotePaths.filter((relativePath) => !trackedPaths.has(relativePath)).length;
+      let deletedNoteCount = 0;
+      let missingTrackedNoteCount = 0;
+
+      for (const noteIndex of noteIndexes) {
+        const deleted = await this.vaultAdapter.deleteTaskNote(noteIndex.filePath);
+
+        if (deleted) {
+          deletedNoteCount += 1;
+        } else {
+          missingTrackedNoteCount += 1;
+        }
+      }
+
+      await this.noteIndexRepository.deleteAll();
+      await this.taskRepository.deleteAll();
+      await this.syncStateRepository.deleteAll();
+
+      const inboundSync = await this.todoistClient.syncObsidianTasks(null);
+
+      for (const task of inboundSync.tasks) {
+        await this.taskRepository.upsertFromTodoist(task, { preservePendingPush: false });
+      }
+
+      await this.syncStateRepository.updateIncrementalSync({
+        nextSyncToken: inboundSync.nextSyncToken,
+      });
+      const exportResult = await this.exportActiveTasks();
+      await this.syncStateRepository.touchFullSync();
+
+      const result: ObsidianResetFromTodoistResult = {
+        action: 'obsidian.reset_from_todoist',
+        result: 'success',
+        durationMs: Date.now() - startedAt,
+        trackedNoteCount: noteIndexes.length,
+        deletedNoteCount,
+        missingTrackedNoteCount,
+        skippedUntrackedNoteCount,
+        importedTaskCount: inboundSync.tasks.length,
+        exportedTaskCount: exportResult.exportedTaskCount,
+        wroteFileCount: exportResult.wroteFileCount,
+        nextSyncTokenPresent: inboundSync.nextSyncToken.length > 0,
+        fullSync: inboundSync.fullSync,
+      };
+
+      await this.syncEventRepository.insert({
+        eventType: 'obsidian.reset_from_todoist',
+        source: 'system',
+        payloadSummary: JSON.stringify(result),
+        result: 'success',
+      });
+      this.logger.warn('Completed Obsidian reset from Todoist', { ...result });
+
+      return result;
+    } catch (error) {
+      await this.syncEventRepository.insert({
+        eventType: 'obsidian.reset_from_todoist_failed',
+        source: 'system',
+        payloadSummary: error instanceof Error ? error.message : String(error),
+        result: 'error',
+      });
+      this.logger.error('Obsidian reset from Todoist failed', error, {
         durationMs: Date.now() - startedAt,
       });
       throw error;
@@ -256,5 +333,36 @@ export class ObsidianSyncService {
       todoistTaskId: task.id,
       remoteTaskStatus: task.taskStatus,
     });
+  }
+
+  private async exportActiveTasks() {
+    const exportTasks = await this.taskRepository.listActiveForExport();
+    let writeCount = 0;
+
+    for (const task of exportTasks) {
+      const existingIndex = await this.noteIndexRepository.findByTaskId(task.todoistTaskId);
+      const exportResult = await this.vaultAdapter.exportTask(task, existingIndex?.filePath ?? null);
+
+      if (!existingIndex || existingIndex.contentHash !== exportResult.contentHash) {
+        writeCount += 1;
+      }
+
+      await this.noteIndexRepository.upsert({
+        todoistTaskId: task.todoistTaskId,
+        filePath: exportResult.relativePath,
+        contentHash: exportResult.contentHash,
+        metadataHash: exportResult.metadataHash,
+        lastFileMtimeUtc: exportResult.lastFileMtimeUtc,
+      });
+      await this.taskRepository.updateExportMetadata(task.todoistTaskId, {
+        contentHash: exportResult.metadataHash,
+        noteBody: exportResult.noteBody,
+      });
+    }
+
+    return {
+      exportedTaskCount: exportTasks.length,
+      wroteFileCount: writeCount,
+    };
   }
 }

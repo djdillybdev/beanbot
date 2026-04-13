@@ -96,6 +96,10 @@ export class TodoistTaskMapRepository {
       .where(eq(todoistTaskMap.todoistTaskId, taskId));
   }
 
+  async deleteAll() {
+    await this.db.delete(todoistTaskMap);
+  }
+
   async findActiveByNormalizedTitle(normalizedTitle: string): Promise<TodoistTaskRecord[]> {
     const rows = await this.db.query.todoistTaskMap.findMany({
       where: and(

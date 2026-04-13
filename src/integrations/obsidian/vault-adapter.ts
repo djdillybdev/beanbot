@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 
 import type { Logger } from '../../logging/logger';
@@ -67,16 +67,21 @@ export class ObsidianVaultAdapter {
 
     try {
       await unlink(filePath);
-      this.logger.info('Deleted Obsidian task note after remote reconciliation', {
+      this.logger.info('Deleted Obsidian task note', {
         relativePath,
       });
+      return true;
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        return;
+        return false;
       }
 
       throw error;
     }
+  }
+
+  async listTaskNotePaths() {
+    return listMarkdownFiles(join(this.vaultPath, this.tasksPath), this.vaultPath);
   }
 
   private async resolveFilePath(task: ObsidianExportTask, previousRelativePath?: string | null) {
@@ -141,6 +146,37 @@ export class ObsidianVaultAdapter {
       throw error;
     }
   }
+}
+
+async function listMarkdownFiles(currentPath: string, vaultPath: string): Promise<string[]> {
+  let entries;
+
+  try {
+    entries = await readdir(currentPath, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const absolutePath = join(currentPath, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...await listMarkdownFiles(absolutePath, vaultPath));
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(relative(vaultPath, absolutePath));
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 function buildMarkdown(task: ObsidianExportTask, metadataHash: string, noteBody: string, timezone: string) {

@@ -72,4 +72,8 @@ export class ObsidianSyncStateRepository {
         },
       });
   }
+
+  async deleteAll() {
+    await this.db.delete(obsidianSyncState);
+  }
 }

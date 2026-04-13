@@ -81,4 +81,8 @@ export class ObsidianNoteIndexRepository {
   async deleteByTaskId(todoistTaskId: string) {
     await this.db.delete(obsidianNoteIndex).where(eq(obsidianNoteIndex.todoistTaskId, todoistTaskId));
   }
+
+  async deleteAll() {
+    await this.db.delete(obsidianNoteIndex);
+  }
 }

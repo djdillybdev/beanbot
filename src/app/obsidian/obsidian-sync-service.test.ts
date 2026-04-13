@@ -123,6 +123,118 @@ describe('obsidian sync reconciliation', () => {
     expect(pushCount).toBe(1);
     expect(events.some((event) => event.eventType === 'pending_push_discarded_for_remote_state')).toBe(true);
   });
+
+  test('reset from Todoist deletes tracked notes and skips local delete processing', async () => {
+    const todoistTask = buildTask();
+    const exportTask = buildExportTask();
+    const deletedPaths: string[] = [];
+    const upsertedTasks: Array<{ taskId: string; preservePendingPush?: boolean }> = [];
+    const events: string[] = [];
+    let noteIndexCleared = false;
+    let tasksCleared = false;
+    let syncStateCleared = false;
+    let scanCount = 0;
+    let pendingDeleteCount = 0;
+    let pendingPushCount = 0;
+
+    const service = new ObsidianSyncService(
+      { obsidianVaultPath: '/vault' } as never,
+      {
+        syncObsidianTasks: async (syncToken: string | null) => {
+          expect(syncToken).toBeNull();
+          return {
+            tasks: [todoistTask],
+            nextSyncToken: 'next',
+            fullSync: true,
+          };
+        },
+      } as never,
+      {
+        deleteAll: async () => {
+          tasksCleared = true;
+        },
+        upsertFromTodoist: async (task: TodoistTaskRecord, options?: { preservePendingPush?: boolean }) => {
+          upsertedTasks.push({ taskId: task.id, preservePendingPush: options?.preservePendingPush });
+        },
+        listActiveForExport: async () => [exportTask],
+        updateExportMetadata: async () => {},
+      } as never,
+      {
+        listAll: async () => [
+          { todoistTaskId: 'task-1', filePath: 'Tasks/task-1.md' },
+          { todoistTaskId: 'task-2', filePath: 'Tasks/missing.md' },
+        ],
+        deleteAll: async () => {
+          noteIndexCleared = true;
+        },
+        findByTaskId: async () => null,
+        upsert: async () => {},
+      } as never,
+      {
+        deleteAll: async () => {
+          syncStateCleared = true;
+        },
+        updateIncrementalSync: async () => {},
+        touchFullSync: async () => {},
+      } as never,
+      {
+        insert: async (event: { eventType: string }) => {
+          events.push(event.eventType);
+        },
+      } as never,
+      {
+        scan: async () => {
+          scanCount += 1;
+          return { changedFileCount: 0, createdTaskCount: 0, detectedDeleteCount: 0, conflictCount: 0, errorCount: 0 };
+        },
+      } as never,
+      {
+        deletePendingTasks: async () => {
+          pendingDeleteCount += 1;
+          return { deletedTaskCount: 0, deleteErrorCount: 0 };
+        },
+      } as never,
+      {
+        pushPendingTasks: async () => {
+          pendingPushCount += 1;
+          return { pushedTaskCount: 0 };
+        },
+      } as never,
+      {
+        listTaskNotePaths: async () => ['Tasks/task-1.md', 'Tasks/untracked.md'],
+        deleteTaskNote: async (relativePath: string) => {
+          deletedPaths.push(relativePath);
+          return relativePath !== 'Tasks/missing.md';
+        },
+        exportTask: async () => ({
+          relativePath: 'Tasks/task-1.md',
+          contentHash: 'content-hash',
+          metadataHash: 'metadata-hash',
+          lastFileMtimeUtc: '2026-04-13T00:00:00.000Z',
+          noteBody: '',
+        }),
+      } as never,
+      buildLogger(),
+    );
+
+    const result = await service.resetFromTodoist();
+
+    expect(deletedPaths).toEqual(['Tasks/task-1.md', 'Tasks/missing.md']);
+    expect(noteIndexCleared).toBe(true);
+    expect(tasksCleared).toBe(true);
+    expect(syncStateCleared).toBe(true);
+    expect(upsertedTasks).toEqual([{ taskId: 'task-1', preservePendingPush: false }]);
+    expect(scanCount).toBe(0);
+    expect(pendingDeleteCount).toBe(0);
+    expect(pendingPushCount).toBe(0);
+    expect(result.trackedNoteCount).toBe(2);
+    expect(result.deletedNoteCount).toBe(1);
+    expect(result.missingTrackedNoteCount).toBe(1);
+    expect(result.skippedUntrackedNoteCount).toBe(1);
+    expect(result.importedTaskCount).toBe(1);
+    expect(result.exportedTaskCount).toBe(1);
+    expect(events).toContain('obsidian.reset_from_todoist');
+  });
 });
 
 function buildTask(overrides?: Partial<TodoistTaskRecord>): TodoistTaskRecord {
@@ -160,5 +272,6 @@ function buildLogger() {
     info() {},
     warn() {},
     error() {},
+    debug() {},
   } as never;
 }

@@ -4,10 +4,12 @@ import { TodoistClient } from '../../integrations/todoist/client';
 import type { Logger } from '../../logging/logger';
 import { SubsystemHealthRegistry } from '../../runtime/subsystem-health';
 import { createObsidianSyncContext } from './obsidian-sync-context';
+import type { ObsidianResetFromTodoistResult } from './obsidian-sync-service';
 
 export interface ObsidianSyncRuntime {
   stop(): void;
   runOnceNow(): Promise<void>;
+  resetFromTodoist(): Promise<ObsidianResetFromTodoistResult>;
 }
 
 const INITIAL_RETRY_DELAY_MS = 5_000;
@@ -29,6 +31,9 @@ export async function startObsidianSyncRuntime(
     return {
       stop() {},
       async runOnceNow() {},
+      async resetFromTodoist() {
+        throw new Error('OBSIDIAN_VAULT_PATH is required for Obsidian sync.');
+      },
     };
   }
 
@@ -142,6 +147,28 @@ export async function startObsidianSyncRuntime(
       } catch (error) {
         handleRetry(error);
         throw error;
+      }
+    },
+    async resetFromTodoist() {
+      if (isRunning) {
+        throw new Error('Cannot reset Obsidian sync while a sync pass is already running.');
+      }
+
+      isRunning = true;
+      try {
+        healthRegistry.markStarting(subsystemName, 'Resetting Obsidian sync state from Todoist.', {
+          retryCount,
+        });
+        const result = await syncService.resetFromTodoist();
+        retryCount = 0;
+        await updateHealthyMetadata();
+        scheduleNext(config.obsidianSyncPollIntervalSeconds * 1000);
+        return result;
+      } catch (error) {
+        handleRetry(error);
+        throw error;
+      } finally {
+        isRunning = false;
       }
     },
   };

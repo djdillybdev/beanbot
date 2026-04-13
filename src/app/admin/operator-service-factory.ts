@@ -120,6 +120,9 @@ export function createOperatorServiceForScript(subsystem = 'admin-script') {
       async runOnceNow() {
         await obsidianContext.syncService.runOnce();
       },
+      async resetFromTodoist() {
+        return obsidianContext.syncService.resetFromTodoist();
+      },
     },
     logger,
   });

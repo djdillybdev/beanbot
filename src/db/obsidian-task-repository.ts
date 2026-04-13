@@ -546,4 +546,9 @@ export class ObsidianTaskRepository {
       })
       .where(eq(obsidianTask.todoistTaskId, todoistTaskId));
   }
+
+  async deleteAll() {
+    await this.db.delete(obsidianTaskLabel);
+    await this.db.delete(obsidianTask);
+  }
 }
